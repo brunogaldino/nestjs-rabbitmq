@@ -1,339 +1,428 @@
-# @nestjs-haremq
+# @bgaldino/nestjs-rabbitmq
+
+# Table of Contents
 
 <!--toc:start-->
 
-- [@nestjs-haremq](#nestjs-haremq)
-  - [Descrição](#descrição)
-  - [Gerenciamento de Conexão](#gerenciamento-de-conexão)
-  - [Uso](#uso)
-    - [Desenvolvimento local](#desenvolvimento-local)
-    - [Instalação](#instalação)
-    - [Inicialização do Módulo](#inicialização-do-módulo)
-  - [O arquivo de configuração](#o-arquivo-de-configuração)
-  - [Publicadores](#publicadores)
-    - [Declarando publicadores](#declarando-publicadores)
-    - [Injetando o RabbitMQService](#injetando-o-rabbitmqservice)
-    - [Publicando mensagens](#publicando-mensagens)
-  - [Consumidores](#consumidores)
-    - [Declarando consumidores](#declarando-consumidores)
-      - [Injetando a função messageHandler](#injetando-a-função-messagehandler)
-      - [Declarando o consumidor](#declarando-o-consumidor)
-      - [O parâmetro retryStrategy](#o-parâmetro-retrystrategy)
-      - [A propriedade autoAck](#a-propriedade-autoack)
-  - [Inspeção de messagens](#inspeção-de-messagens)
-  - [Como buildar esta biblioteca?](#como-buildar-esta-biblioteca)
-  <!--toc:end-->
+- [@bgaldino/nestjs-rabbitmq](#bgaldinonestjs-rabbitmq)
+- [Table of Contents](#table-of-contents)
+  - [Description](#description)
+    - [Requirements](#requirements)
+    - [Instalation](#instalation)
+  - [Getting Started](#getting-started)
+    - [Importing the module](#importing-the-module)
+    - [The configuration file](#the-configuration-file)
+  - [Publishers](#publishers)
+    - [Publishing messages](#publishing-messages)
+  - [Consumers](#consumers)
+    - [The messageHandler callback](#the-messagehandler-callback)
+    - [Strongly typed consumer](#strongly-typed-consumer)
+    - [Consumer late loading](#consumer-late-loading)
+    - [Declaration example](#declaration-example)
+  - [Retrying strategy](#retrying-strategy)
+  - [Disabling the automatic ack](#disabling-the-automatic-ack)
+  - [Message inspection and logging](#message-inspection-and-logging)
+  - [How to build this library locally ?](#how-to-build-this-library-locally)
+- [License](#license)
+<!--toc:end-->
 
-## Descrição
+## Description
 
-Este módulo apresenta uma maneira opinativa de inicializar e configurar o Publisher/Subscriber do RabbitMQ usando o NestJS.
+This module features an opinionated way of configuring the RabbitMQ connection
+by using a configuration file that describes the behaviour of all publishers
+and consumers present in your project
 
-## Gerenciamento de Conexão
+### Requirements
 
-Este pacote utiliza fortemente o [`amqp-connection-manager`](https://github.com/benbria/node-amqp-connection-manager) para gerenciar a conexão com o RabbitMQ.
+- @nestjs/common: ">9"
+- An RabbitMQ instance with the
+  [RabbitMQ Delayed Message Plugin](https://github.com/rabbitmq/rabbitmq-delayed-message-exchange) installed
 
-Ao iniciar uma conexão, é criada uma instância de AmqpConnectionManager, passando as seguintes informações:
+### Instalation
+
+**PNPM**
+
+```shell
+pnpm add @nestjs-rabbitmq
+```
+
+**YARN**
+
+```shell
+yarn add @nestjs-rabbitmq
+```
+
+**NPM**
+
+```shell
+npm add @nestjs-rabbitmq
+```
+
+<!-- ## Connection Management -->
+<!---->
+<!-- This package wraps around the [`amqp-connection-manager`](https://github.com/benbria/node-amqp-connection-manager) -->
+<!-- to manage all AMQP connections with RabbitMQ -->
+<!---->
+<!-- When starting a connection, an instance of `AmqpConnectionManager` is created, passing the following information: -->
+<!---->
+<!-- ```typescript -->
+<!-- this.connection = connect(options.connectionString, { -->
+<!--   heartbeatIntervalInSeconds: 60, -->
+<!--   reconnectTimeInSeconds: 5, -->
+<!--   connectionOptions: { -->
+<!--     keepAlive: true, -->
+<!--     keepAliveDelay: 5000, -->
+<!--     servername: hostname(), -->
+<!--     clientProperties: { -->
+<!--       connection_name: `${process.env.npm_package_name}-${hostname()}`, -->
+<!--     }, -->
+<!--   }, -->
+<!-- }); -->
+<!-- ```` -->
+
+<!-- Esta conexão é então utilizada para criar quaisquer canais necessários para consumidores registrados e um único canal para publicar mensagens, portanto, apenas UMA conexão é criada ao longo de todo o ciclo de vida do SDK. -->
+
+## Getting Started
+
+### Importing the module
+
+Import the `RabbitMQModule` in your `app.module.ts` and call the method `register({})`
 
 ```typescript
-this.connection = connect(options.connectionString, {
-  heartbeatIntervalInSeconds: 60,
-  reconnectTimeInSeconds: 5,
-  connectionOptions: {
-    keepAlive: true,
-    keepAliveDelay: 5000,
-    servername: hostname(),
-    clientProperties: {
-      connection_name: `${process.env.npm_package_name}-${hostname()}`,
-    },
-  },
-});
-```
-
-Esta conexão é então utilizada para criar quaisquer canais necessários para consumidores registrados e um único canal para publicar mensagens, portanto, apenas UMA conexão é criada ao longo de todo o ciclo de vida do SDK.
-
-## Uso
-
-### Desenvolvimento local
-
-crie um arquivo local chamado `Dockerfile.rabbitmq` e cole o conteúdo a seguir
-
-```Dockerfile
-FROM rabbitmq:3.13.1-management
-
-# Instalação do pacote curl
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Baixa e habilita o plugin rabbitmq_delayed_message_exchange
-RUN curl -L https://github.com/rabbitmq/rabbitmq-delayed-message-exchange/releases/download/v3.13.0/rabbitmq_delayed_message_exchange-3.13.0.ez > $RABBITMQ_HOME/plugins/rabbitmq_delayed_message_exchange-3.13.0.ez && \
-    rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange
-
-# Define o usuário e senha padrão do RabbitMQ
-ENV RABBITMQ_DEFAULT_USER=admin
-ENV RABBITMQ_DEFAULT_PASS=admin
-
-```
-
-PS.: Esse Dockerfile já está preparado para habilitar o pluggin rabbitmq_delayed_message_exchange, conforme utilizado nos nossos ambientes em nuvem.
-
-Agora, na pasta onde o arquivo foi criado, execute o comando:
-
-```shell
-docker build -t rabbitmq:latest -f Dockerfile.rabbitmq .
-```
-
-Isso irá construir a imagem do RabbitMQ usando o Dockerfile.rabbitmq e atribuir a tag "rabbitmq:latest" à imagem.
-
-Depois de construir a imagem, você pode iniciar um contêiner com base nessa imagem. Certifique-se de definir as variáveis de ambiente conforme necessário:
-
-```shell
-docker run -d --name rabbitmq \
-  -e RABBITMQ_DEFAULT_USER=admin \
-  -e RABBITMQ_DEFAULT_PASS=admin \
-  -v ./data_docker/rabbitmq/data/:/var/lib/rabbitmq/ \
-  -p 5672:5672 -p 15672:15672 \
-  rabbitmq:latest
-```
-
-Neste comando:
-
--d inicia o contêiner em segundo plano.
---name meu-rabbitmq define o nome do contêiner como "meu-rabbitmq".
--e RABBITMQ_DEFAULT_USER=admin e -e RABBITMQ_DEFAULT_PASS=admin definem as variáveis de ambiente para o usuário e senha padrão do RabbitMQ.
--v /caminho/para/data_docker/rabbitmq/data/:/var/lib/rabbitmq/ monta o volume para persistir os dados do RabbitMQ.
--p 5672:5672 -p 15672:15672 mapeia as portas do RabbitMQ (5672 para mensagens e 15672 para o painel de administração).
-
-### Instalação
-
-```shell
-yarn add @nestjs-haremq
-```
-
-### Inicialização do Módulo
-
-Importe e adicione o `RabbitMQModule` ao seu `app.module.ts` e chame o método `register()` para ativá-lo.
-
-```typescript
-import { RabbitMQModule } from './rabbit/rabbitmq.module';
-import { RabbitOptions } from './rabbit.options';
+import { RabbitMQModule } from '@bgaldino/nestjs-rabbitmq';
+import { RabbitOptions } from '@bgaldino/nestjs-rabbitmq';
 
 @Module({
   imports: [
     ...
-    RabbitMQModule.register({ useClass: RabbitOptions, imports: [...] }),
+    RabbitMQModule.register({ useClass: RabbitOptions, injects: [...] }),
     ...
   ]
 })
 export class AppModule {}
 ```
 
-O módulo `RabbitMQModule` é marcado como **@Global**, portanto, não é necessário fazer mais injeções de módulo para usar o `RabbitMQService`.
+The `RabbitMQModule` is marked as `@Global`, therefore, calling it once is enough
+to allow the injection of the `RabbitMQService`
 
-## O arquivo de configuração
+### The configuration file
 
-Este SDK depende muito de um único padrão de configuração para configurar corretamente os publicadores/consumidores do RabbitMQ. O arquivo de configuração mínimo precisa conter o seguinte:
+Create a `rabbitmq.config.ts` or whatever the name you prefer containing the minimum configuration:
 
 ```typescript
+import { Injectable } from "@nestjs/common";
+import {
+  RabbitMQModuleOptions,
+  RabbitOptionsFactory,
+} from "@bgaldino/nestjs-rabbitmq";
+
 @Injectable()
 export class RabbitOptions implements RabbitOptionsFactory {
   createRabbitOptions(): RabbitMQModuleOptions {
     return {
       connectionString: "amqp://{user}:{password}@{url}/{vhost}",
-      publishChannels: [],
+      delayExchangeName: "MyDelayExchange",
+      assertExchanges: [],
       consumerChannels: [],
     };
   }
 }
 ```
 
-## Publicadores
+## Publishers
 
-### Declarando publicadores
-
-A propriedade `publishChannels` espera um array de `RabbitMQAssertExchange` que será asserido durante o inicialização do Nest.
-
-Por exemplo:
+**Example config file**:
 
 ```typescript
-publishChannels: [
+assertExchanges: [
   { name: 'webhooks', type: 'topic',options: { durable: true, autoDelete: false } },
-  { name: 'webhooks', type: 'topic',options: { durable: true, autoDelete: false, exchangeSufix: 'my-exchange' } },
   { name: 'test-fanout', type: 'fanout' },
-  { name: 'example-direct', type: 'direct' },
+  { name: 'example-direct', type: 'direct', , options: {exchangeSuffix: '.mySufix'}},
 ],
 ```
 
-Observe que agora há a possibilidade de configurar manualmente a propriedade exchangeSufix, por default o valor é '.exchange', caso necessário é possível configurar manualmente o sufixo conforme exemplo da linha 2.
+The `assertExchanges` property expects an array of `RabbitMQAssertExchange`
+and each entry will asserted against the RabbitMQ connected server.
 
-Caso a exchange não exista no Rabbit ela será criada no momento da incialização do Nest.
+If any entry does not match a current configuration, or cannot be
+created/attached. A terminal error `406 - PRECONDITION_FAILED` will be thrown
+with the reason and the server will not initialize
 
-Cada entrada do array será validada com base nos parâmetros fornecidos. Se uma exchange já existir com parâmetros diferentes, uma exceção terminal `406 - PRECONDITION_FAILED` será lançada e o Nest não inicializará.
+By default every exchange will have the `.exchange` attached to its name.
+If you want to remove this, you can pass an empty value to the
+`exchangeSuffix` property
 
-### Injetando o RabbitMQService
+### Publishing messages
 
-O `RabbitMQModule` fornece seu próprio serviço `RabbitMQService` que estará globalmente disponível através do sistema de injeção de dependência do Nest. Basta exigir isso no construtor de qualquer Controlador ou Serviço do Nest.
+**Example**:
 
 ```typescript
-@Controller()
-export class MyClassController {
+import { Injectable } from "@nestjs/common";
+import { RabbitMQService } from "@bgaldino/nestjs-rabbitmq";
+
+@Injectable()
+export class MyService {
   constructor(private readonly rabbitMQService: RabbitMQService) {}
 }
+
+async publishMe(){
+  const isPublished = await this.rabbitMQService.publish('exchange_name', 'routing_key', {});
+}
+
+//or
+
+async publishMeTyped() {
+  const isPublished = await this.rabbitMQService.publish<CustomType>('exchange_name', 'routing_key', {});
+  //This will return an error if the object is not properly typed
+}
 ```
 
-### Publicando mensagens
+The `publish()` method uses [Publish Confirms](https://www.rabbitmq.com/docs/confirms#publisher-confirms)
+to make sure that the message is delivered to the broker before returning
+the promise.
 
-Para publicar mensagens, utilize o método `publish` fornecido pelo `RabbitMQService`, que possui a seguinte assinatura:
+## Consumers
+
+Inside the configuration file you can declare your consumers on the section
+`consumerChannels`. This list of `RabbitMQConsumerChannel` will be evaluated
+and each entry will try to create the queue and bind it to the declared
+exchange.
+
+**Example:**
 
 ```typescript
-public async publish<T = any>(
-  exchangeName: string,
-  routingKey: string,
-  message: T,
-  options?: PublishOptions,
-): Promise<boolean>
+
+createRabbitOptions(): RabbitMQModuleOptions {
+    return {
+      ...,
+      consumerChannels: [
+        {
+          options: {
+            queue: 'myqueue',
+            exchangeName: 'foobar.exchange',
+            routingKey: 'myqueue',
+            prefetch: Number(process.env.RABBIT_PREFETCH ?? 10),
+            retryStrategy: {
+              enabled: true,
+              maxAttempts: 5,
+              delay: (attempt: number) => {
+                return attempt * 5000;
+              },
+            },
+          },
+          messageHandler: this.consumerService.messageHandler.bind(
+            this.consumerService,
+          ),
+        },
+      ]
+  }
+}
 ```
 
-Por exemplo:
+The consumer **DOES NOT** create exchanges and only bind to ones that already
+exists. This is to avoid creating exchanges with typos and misconfigurations.
+
+### The messageHandler callback
+
+As declared in the example above, the `messageHandler` property expects a
+callback of the type `IRabbitHandler`. Because of the nature of the library,
+we will need to call the `.bind(this.yourService)` in order to bind the `this`
+context of the origin service to the callback.
+
+The `RabbitMQModule.register()` accepts an array of NestJS Modules with the
+any module that contains an consumer callback function.
+
+The `callback` has the following signature:
 
 ```typescript
-await this.rabbitMQClient.publish<CustomModel>(
-  "some-exchange",
-  "routing-key",
-  {},
-);
+async messageHandler(content: any, params?: RabbitConsumerParams): Promise<void>;
 ```
 
-É importante notar que o método `publish` retorna um `Promise<boolean>` ao utilizar Confirmações de Publicador do RabbitMQ [Publisher Confirms](https://www.rabbitmq.com/docs/confirms). Isso garante que a mensagem publicada seja confirmada pelo corretor antes de resolver a promessa.
-
-## Consumidores
-
-### Declarando consumidores
-
-No arquivo de configuração, todos os consumidores devem ser declarados na seção `consumerChannels`. A lista de objetos do tipo `RabbitMQConsumerChannel` será então asserida e a fila e quaisquer vinculações necessárias serão criadas com base nas instruções do objeto.
-
-Por exemplo:
+where `RabbitConsumerParams` is optional and contains the following info:
 
 ```typescript
- consumerChannels: [
-       {
-         options: {
-           queue: 'direct-consumer-1', //Nome da queue
-           exchangeName: 'example-direct', //Nome da exchange "sempre terminando com .exchange"
-           routingKey: 'direct-1', // Routing Key que sera criada no bind
-           prefetch: 10, //Quantidade máxima de mensagens que o RabbitMQ irá entregar para um consumer
-           autoDelete: false, //Se a fila será automaticamente deletada caso não haja mais consumidores
-           durable: true, //Se a fila irá persistir as mensagens em disco
-           autoAck: true, //Ack automatico após o retorno do messageHandler. Se falso, é necessário dar um ack manual
-           retryStrategy: {
-             enabled: true, //Se a fila terá retentativa e criará as filas de .retry e .dlq
-             maxAttempts: 5, //Quantidade de tentativas maximas antes de enviar para
-             delay: 5000,
-           },
-          suffixOptions?: { // parâmetros opcionais para configuração manual do nome da exchange e da DLQ.
-            exchangeSuffix?: string; // o valor default é '.exchange', caso necessário é possível configurá-lo manualmente
-            dlqSuffix?: string; // o valor default é '.dlq', caso necessário é possível configurá-lo manualmente
-          };
-         },
-         messageHandler: this.rabbitConsumersExample.directMessageHandler.bind(this.rabbitConsumersExample),
-       }
-]
+export type RabbitConsumerParameters = {
+  message: ConsumeMessage;
+  channel: ConfirmChannel;
+  queue: string;
+};
 ```
 
-Caso a exchange não exista no host que está sendo configurado para a conexão será necessário criar-lá manualmente. Atente-se para as demais configurações.
+### Strongly typed consumer
 
-Os consumidores **NÃO** criam nem fazer asserts de exchanges. Esteja ciente do que você está conectando e como a conexão está sendo feita. Alguns exemplos são:
-
-- Exchanges `fanout` ignoram routingKeys.
-- Exchanges `direct` não podem usar routing keys genéricas.
-- Exchanges tópicos podem usar `#` e `*` nas chaves de roteamento para criar vinculações genéricas.
-
-#### Injetando a função messageHandler
-
-E como você pode ver no exemplo acima, a propriedade `messageHandler` espera o callback do consumidor do tipo `IRabbitHandler`. É importante chamar o `.bind(service)` nele para que possa anexar o contexto `this` do serviço à função.
-Para anexar a função corretamente, o módulo que contém o consumidor precisa ser injetado através do `.register({imports: [RabbitConsumersExample]})`.
-
-Cada módulo então estará disponível para ser injetado no arquivo de configuração, por exemplo:
+You can use the `IRabbitConsumer<T>` to type the consumer first parameter `content`.
 
 ```typescript
+export interface MyInterface {
+  type: string;
+  id: number;
+}
+
+@Injectable()
+export class MyClass implements IRabbitConsumer<MyInterface> {
+  public async messageHandler(content: MyInterface): Promise<void> {
+    console.log(content.type);
+  }
+}
+```
+
+### Consumer late loading
+
+This library attaches the consumers during the `OnApplicationBootstrap` lifecycle
+of the NestJS Application, meaning that the application will begin to receive
+messages as soon as the lifecycle is done.
+
+If your application needs some time to initiate the consumers for some reason,
+(pods with limited resource for example), you can set the flag
+`consumerManualLoad: true` on the configuration file and manually call the
+consumer instantiation.
+
+**Example:**
+
+```typescript
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+
+  const rabbit: RabbitMQService = app.get(RabbitMQService);
+  await rabbit.createConsumers();
+}
+bootstrap();
+```
+
+### Declaration example
+
+**Service example:**
+
+```typescript
+//consumer.module.ts
+@Module({
+  provides: [ConsumerService],
+  exports: [ConsumerService],
+})
+export class ConsumerModule {}
+
+//consumer.service.ts
+@Injectable()
+export class ConsumerService {
+  async messageHandler(content: any) {
+    return null;
+  }
+}
+```
+
+**Config Example:**
+
+```typescript
+//rabbit.config.ts
+@Injectable()
 export class RabbitOptions implements RabbitOptionsFactory {
   constructor(
-    @Inject(forwardRef(() => RabbitConsumersExample))
-    readonly rabbitConsumersExample: RabbitConsumersExample,
+    readonly consumerService: ConsumerService ,
   ) {}
-...
+
+createRabbitOptions(): RabbitMQModuleOptions {
+  return {
+        ...
+        consumerchannels: [
+          {
+            options: {
+              queue: "myqueue",
+              exchangename: "test.exchange",
+              routingkey: "myqueue",
+              prefetch: number(process.env.rabbit_prefetch ?? 10),
+            },
+            messagehandler: this.MyService.messageHandler.bind(this.MyService),
+          },
+        ];
+    }
 }
+
+//app.module.ts
+@Module({
+  imports: [
+  ...,
+  RabbitMQModule.register({
+    useClass: RabbitConfig,
+    injects: [ConsumerModule]
+  })
+  ]
+})
+export class AppModule {}
 ```
 
-É importante observar o uso do método `forwardRef()`. Isso é **necessário** no caso de a classe que possui o consumidor também possuir um publicador! Porque, como mencionado anteriormente, a classe que possui um produtor precisa injetar o serviço RabbitMQService, e se esta classe também precisar ser injetada no contexto do RabbitMQ, uma dependência circular será criada entre elas. O [forwardRef()](https://docs.nestjs.com/fundamentals/circular-dependency) quebra o loop.
+## Retrying strategy
 
-#### Declarando o consumidor
-
-Para declarar o consumidor, basta criar uma função com a seguinte assinatura:
-
-```typescript
-  async myFunction(message: ConsumeMessage, channel: ConfirmChannel, queue: string): Promise<void>;
-```
-
-Você também pode optar por implementar a interface `IRabbitConsumer` na sua classe desejada, por exemplo:
-
-```typescript
-export class MyClass implements IRabbitConsumer {
-  public async messageHandler(
-    message: ConsumeMessage,
-    channel: ConfirmChannel,
-    queue: string,
-  ): Promise<void> {}
-}
-```
-
-Isso é apenas um auxílio para que você tenha pelo menos um consumidor funcional, você pode criar quantos quiser, desde que siga as regras de vinculação no arquivo de configuração.
-
-#### O parâmetro retryStrategy
-
-Dentro da declaração do consumidor há uma propriedade opcional chamada `retryStrategy` que dita se haverá um mecanismo de retry e DLQ. Por padrão, a estratégia de retry padrão é (no caso de omitido):
+On each consumer declaration you can pass the optional parameter: `retryStrategy`
+with following the contract:
 
 ```typescript
 retryStrategy: {
-  enabled: true;
-  maxAttempts: 5;
-  delay: 5000;
+  enabled?: true,
+  maxAttempts?: 5,
+  delay?: (attempt) => {return attempt * 5000};
 }
 ```
 
-Quando ativada, a fila principal também criará uma fila `.retry` e uma fila `.dlq`. Se uma exceção for **lançada** durante a execução do consumidor sem ser capturada, o mecanismo de retry automaticamente enfileirará a mensagem lançada na fila `.retry` pelo tempo de atraso especificado, até o máximo de tentativas declaradas. Se o consumidor não puder processar a mensagem, ela será enviada para a fila `.dlq`.
+By default, the `retryStrategy` is enabled. When consuming a new message and
+the callback throws an error.
 
-#### A propriedade autoAck
+When enabled, the library will create a `{options.queue}.dlq` queue and will use
+the `delayExchangeName` exchange as the retrying orchestrator where the
+`x-delay` value is the return of the anonymous callback `delay`.
 
-Por padrão, você não precisa confirmar a mensagem consumida por meio de um `ack`, isso será feito automaticamente pelo SDK no retorno do callback do consumidor. Se por algum motivo você precisar fazer o processo manualmente, você pode passar `autoAck: false` ela interromperá a confirmação da mensagem no retorno do callback.
-**Atenção**: Se a propriedade `autoAck` estiver desativada, é **necessário** que o consumidor confirme a mensagem manualmente, por exemplo:
+When the maximum attempts is reached, the library issues a nack, sending the
+message to the `.dlq` queue.
+
+## Disabling the automatic ack
+
+By default, the consumer will automatically send an ack at the end of the
+callback execution. If you need to disable this behaviour, you can pass:
 
 ```typescript
-public async messageHandler(message: ConsumeMessage, channel: ConfirmChannel, queue: string): Promise<void> {
-   channel.ack(message);
+consumerChannels: [
+  options: {
+    ...,
+    autoAck: false
+  }
+]
+```
+
+When disabled, it is necessary to manually acknowledge the message as follows:
+
+```typescript
+public async messageHandler(content: any, params: RabbitConsumerParameters): Promise<void> {
+   params.channel.ack(params.message);
 }
 ```
 
-## Inspeção de messagens
+## Message inspection and logging
 
-Essa biblioteca providencia uma ferramente de inspeção de mensagens para debugging e monitoramento. Para ativar esse, coloque em seu arquivo de configuração:
+You can inspect the consumer/publisher messages by setting the parameter
+`trafficInspection` or setting the environment variable `RABBITMQ_TRAFFIC_TYPE`
+to either: `all | consumer | publisher | none`.
 
-```typescript
-{
-  ...,
-  trafficInspection: "all" | "consumer" | "producer" | "none";
-}
+The default value is `none`
+
+## How to build this library locally ?
+
+Just pull the project and run:
+
+```shell
+pnpm install
+pnpm build
 ```
 
-Essa opção pode ser sobreescrita com o uso da variável de ambiente: `RABBITMQ_TRAFFIC_TYPE` aceitando os mesmos valores.
+And should be good to go
 
-Por padrão, o valor `none` será usado.
+# Planned features
 
-## Como buildar esta biblioteca?
+TBD
 
-Certifique-se de ter a última versão do Yarn instalada e execute o seguinte comando:
+# Contribute
 
-```typescript
-yarn build
-```
+TBD
+
+# License
+
+[MIT License](https://github.com/golevelup/nestjs/blob/master/LICENSE)

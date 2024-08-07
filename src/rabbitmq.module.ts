@@ -5,7 +5,7 @@ import { RabbitOptionsFactory } from "./rabbitmq.interfaces";
 
 export type RabbitOptions = {
   useClass: Type<RabbitOptionsFactory>;
-  imports?: any[];
+  injects?: any[];
 };
 
 @Module({})
@@ -13,7 +13,7 @@ export class RabbitMQModule {
   static register(options: RabbitOptions): DynamicModule {
     return {
       module: RabbitMQModule,
-      imports: [...(options?.imports ?? [])],
+      imports: [...(options?.injects ?? [])],
       global: true,
       providers: [
         AMQPConnectionManager,

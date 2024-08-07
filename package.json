@@ -1,15 +1,22 @@
 {
-  "name": "nestjs-rabbitmq",
-  "version": "0.0.12",
+  "name": "@bgaldino/nestjs-rabbitmq",
+  "version": "1.0.0",
   "description": "",
   "main": "dist/index.js",
-  "author": "Bruno Galdino",
+  "author": "Bruno Galdino <brunogaldinoc@gmail.com>",
+  "homepage": "https://github.com/brunogaldino/nestjs-rabbitmq",
+  "keywords": [
+    "NestJS",
+    "RabbitMQ",
+    "amqp",
+    "nestjs-rabbitmq"
+  ],
   "license": "MIT",
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "rimraf dist && tsc",
-    "prepublish": "yarn run build"
+    "prepublish": "pnpm run build"
   },
   "dependencies": {
     "amqp-connection-manager": "^4.1.14",

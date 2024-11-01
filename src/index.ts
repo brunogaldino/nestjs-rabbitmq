@@ -14,3 +14,5 @@ export {
   RabbitMQConsumerChannel,
   PublishOptions,
 } from "./rabbitmq.types";
+
+export * from "./test/rabbitmq-test.module";

@@ -62,8 +62,73 @@ export class RabbitMQService {
         hasErrors,
       );
     }
-
     return !hasErrors;
+  }
+
+  /**
+   * Publishes an array of messages to the broker.
+   * @param {string} exchangeName - Name of the exchange
+   * @param {string} routingKey - Routing key for publishing
+   * @param {T[]} messages - Array of messages that will be published to RabbitMQ. All messages will be transformed into JSON.
+   * @param {number} batchSize - The number of messages sent per batch,This value is used to avoid sending an excessively high number of messages at once.
+   * **Default:** `100`
+   * @param {PublishOptions} options - Any custom options you want to send with the message, such as headers or properties.
+   * @returns {Promise<T[]>} Returns a confirmation promise.
+   * If **empty**, it means all messages were successfully delivered to an exchange or queue.
+   * If **contains items**, it means they **were not published**!
+   */
+
+  async publishBulk<T = any[]>(
+    exchangeName: string,
+    routingKey: string,
+    messages: T[],
+    batchSize: number = 100,
+    options?: PublishOptions,
+  ): Promise<T[]> {
+    const faileds: any[] = [];
+    function chunkArray(arr: T[], size: number) {
+      const result = new Array(Math.ceil(arr.length / size));
+      let index = 0;
+      for (let i = 0; i < arr.length; i += size) {
+        result[index++] = arr.slice(i, i + size);
+      }
+      return result;
+    }
+    const chunkMessages = chunkArray(messages, batchSize);
+    for (const chunk of chunkMessages) {
+      await Promise.all(
+        chunk.map(async (message: T) => {
+          let hasErrors = null;
+          const start = process.hrtime.bigint();
+          try {
+            await AMQPConnectionManager.publishChannelWrapper.publish(
+              exchangeName,
+              routingKey,
+              stringify(message),
+              {
+                correlationId: randomUUID(),
+                ...options,
+                persistent: true,
+                deliveryMode: 2,
+              },
+            );
+          } catch (e) {
+            faileds.push(message);
+            hasErrors = e;
+          } finally {
+            this.inspectPublisher(
+              exchangeName,
+              routingKey,
+              message,
+              process.hrtime.bigint() - start,
+              options,
+              hasErrors,
+            );
+          }
+        }),
+      );
+    }
+    return faileds;
   }
 
   async createConsumers(): Promise<ChannelWrapper[]> {

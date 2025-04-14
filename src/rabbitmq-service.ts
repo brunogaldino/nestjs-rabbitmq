@@ -50,7 +50,7 @@ export class RabbitMQService implements OnApplicationBootstrap {
   ): Promise<boolean> {
     let hasErrors = null;
     const start = process.hrtime.bigint();
-    const defaultHeaders = {
+    const defaultOptions = {
       correlationId: randomUUID(),
       headers: {
         "x-application-headers": {
@@ -62,13 +62,13 @@ export class RabbitMQService implements OnApplicationBootstrap {
       persistent: true,
       deliveryMode: 2,
     };
-
+    const mergedOptions = merge(defaultOptions, options)
     try {
       await AMQPConnectionManager.publishChannelWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
-        merge(defaultHeaders, options),
+        mergedOptions,
       );
     } catch (e) {
       hasErrors = e;
@@ -78,7 +78,7 @@ export class RabbitMQService implements OnApplicationBootstrap {
         routingKey,
         message,
         process.hrtime.bigint() - start,
-        options,
+        mergedOptions,
         hasErrors,
       );
     }

@@ -58,7 +58,7 @@ describe("CrashedConnection", () => {
     expect(logSpy).toHaveBeenCalled();
 
     expect(logSpy.mock.lastCall?.[0]).toMatchObject(
-      expect.objectContaining({
+      {
         logLevel: "error",
         title: `[AMQP] [PUBLISH] [not_exists.exchange] [not_exists.key]`,
         binding: {
@@ -69,7 +69,7 @@ describe("CrashedConnection", () => {
           content: { test: "error" },
         },
         error: expect.objectContaining({ message: "channel closed" }),
-      }),
+      },
     );
   });
 });

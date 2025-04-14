@@ -115,7 +115,7 @@ describe("AMQPConnectionManager", () => {
 
       jest
         .spyOn(RmqTestService.prototype, "messageHandler")
-        .mockImplementation(async () => {});
+        .mockImplementation(async () => { });
 
       const isPublished = await rabbitMqService.publish(
         TestConsumers[0].exchangeName,
@@ -147,7 +147,7 @@ describe("AMQPConnectionManager", () => {
       expect(isPublished).toBeTruthy();
 
       expect(loggerSpy.mock.lastCall?.[0]).toMatchObject(
-        expect.objectContaining({
+        {
           logLevel: "log",
           title: `[AMQP] [PUBLISH] [${TestConsumers[0].exchangeName}] [${TestConsumers[0].routingKey}]`,
           binding: {
@@ -159,7 +159,85 @@ describe("AMQPConnectionManager", () => {
             content: { test: "published" },
             properties: { correlationId: "123" },
           },
-        }),
+        },
+      );
+    });
+
+    it("should publish a message with custom headers, and keep the application's default headers, in addition to keeping the correct values ​​in the header", async () => {
+      jest.clearAllMocks();
+
+      const spy = jest.spyOn(RabbitMQService.prototype, "publish");
+      const rabbitPublish = jest.spyOn(
+        AMQPConnectionManager.publishChannelWrapper,
+        "publish",
+      );
+
+      const loggerSpy = jest.spyOn(Logger.prototype, "log");
+
+      jest
+        .spyOn(RmqTestService.prototype, "messageHandler")
+        .mockImplementation(async () => { });
+
+      const isPublished = await rabbitMqService.publish(
+        TestConsumers[0].exchangeName,
+        TestConsumers[0].routingKey as string,
+        { test: "published" },
+        {
+          correlationId: "123", headers: {
+            custom: "custom"
+          }
+        },
+      );
+
+      expect(spy).toHaveBeenCalled();
+
+      expect(rabbitPublish).toHaveBeenCalledWith(
+        TestConsumers[0].exchangeName,
+        TestConsumers[0].queue,
+        JSON.stringify({ test: "published" }),
+        {
+          correlationId: "123",
+          deliveryMode: 2,
+          persistent: true,
+          headers: {
+            "custom": "custom",
+            "x-application-headers": {
+              "original-exchange": TestConsumers[0].exchangeName,
+              "original-routing-key": TestConsumers[0].routingKey,
+              "published-at": expect.any(String),
+            },
+          },
+        },
+      );
+
+      const publishedAt = loggerSpy.mock.lastCall?.[0].publishedMessage.properties.headers["x-application-headers"]["published-at"]
+      expect(isPublished).toBeTruthy();
+      expect(publishedAt).toBeDefined()
+      expect(() => new Date(publishedAt).toISOString()).not.toThrow();
+      expect(loggerSpy.mock.lastCall?.[0]).toMatchObject(
+        {
+          logLevel: "log",
+          title: `[AMQP] [PUBLISH] [${TestConsumers[0].exchangeName}] [${TestConsumers[0].routingKey}]`,
+          binding: {
+            routingKey: TestConsumers[0].routingKey,
+            exchange: TestConsumers[0].exchangeName,
+          },
+          correlationId: "123",
+          publishedMessage: {
+            content: { test: "published" },
+            properties: {
+              persistent: true,
+              deliveryMode: 2,
+              correlationId: "123", headers: {
+                custom: "custom",
+                "x-application-headers": {
+                  "original-exchange": TestConsumers[0].exchangeName,
+                  "original-routing-key": TestConsumers[0].routingKey,
+                },
+              }
+            },
+          },
+        },
       );
     });
 
@@ -176,7 +254,7 @@ describe("AMQPConnectionManager", () => {
 
       jest
         .spyOn(RmqTestService.prototype, "messageHandler")
-        .mockImplementation(async () => {});
+        .mockImplementation(async () => { });
 
       const isPublished = await rabbitMqService.publishBulk(
         TestConsumers[0].exchangeName,
@@ -213,7 +291,7 @@ describe("AMQPConnectionManager", () => {
       expect(isPublished).toBeTruthy();
 
       expect(loggerSpy.mock.lastCall?.[0]).toMatchObject(
-        expect.objectContaining({
+       {
           logLevel: "log",
           title: `[AMQP] [PUBLISH] [${TestConsumers[0].exchangeName}] [${TestConsumers[0].routingKey}]`,
           binding: {
@@ -225,7 +303,7 @@ describe("AMQPConnectionManager", () => {
             content: { test: "published" },
             properties: { correlationId: "123" },
           },
-        }),
+        },
       );
     });
 
@@ -237,7 +315,7 @@ describe("AMQPConnectionManager", () => {
         .mockResolvedValue(true);
       jest
         .spyOn(RmqTestService.prototype, "messageHandler")
-        .mockImplementation(async () => {});
+        .mockImplementation(async () => { });
 
       const publisheds = await rabbitMqService.publishBulk<any>(
         TestConsumers[0].exchangeName,
@@ -264,7 +342,7 @@ describe("AMQPConnectionManager", () => {
         .mockReturnValue(0);
       jest
         .spyOn(RmqTestService.prototype, "messageHandler")
-        .mockImplementation(async () => {});
+        .mockImplementation(async () => { });
 
       const publisheds = await rabbitMqService.publishBulk<any>(
         TestConsumers[0].exchangeName,

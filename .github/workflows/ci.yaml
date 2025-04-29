@@ -1,0 +1,44 @@
+name: nestjs-rabbitmq
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  check-application:
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: heidiks/rabbitmq-delayed-message-exchange:4.0.2-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install depencencies
+        run: pnpm i
+
+      - name: Wait for RabbitMQ to go up
+        run: |
+          echo "Waiting RabbitMQ..."
+          for i in {1..10}; do
+            nc -z localhost 5672 && echo "RabbitMQ OK" && break
+            echo "Waiting..."
+            sleep 5
+          done
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

@@ -1,0 +1,57 @@
+name: nestjs-rabbitmq
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  check-application:
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: heidiks/rabbitmq-delayed-message-exchange:4.0.2-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Wait for RabbitMQ to be healthy
+        run: |
+          echo "Waiting for RabbitMQ to become healthy..."
+          for i in {1..20}; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' ${{ job.services.rabbitmq.id }})
+            echo "Status: $STATUS"
+            if [ "$STATUS" == "healthy" ]; then
+              echo "RabbitMQ is healthy"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "RabbitMQ did not become healthy in time"
+          exit 1
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+

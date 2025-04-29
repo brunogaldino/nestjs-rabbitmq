@@ -50,7 +50,7 @@ export class RabbitMQService implements OnApplicationBootstrap {
   ): Promise<boolean> {
     let hasErrors = null;
     const start = process.hrtime.bigint();
-    const defaultHeaders = {
+    const defaultOptions = {
       correlationId: randomUUID(),
       headers: {
         "x-application-headers": {
@@ -62,13 +62,13 @@ export class RabbitMQService implements OnApplicationBootstrap {
       persistent: true,
       deliveryMode: 2,
     };
-
+    const mergedOptions = merge(defaultOptions, options)
     try {
       await AMQPConnectionManager.publishChannelWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
-        merge(defaultHeaders, options),
+        mergedOptions,
       );
     } catch (e) {
       hasErrors = e;
@@ -78,12 +78,55 @@ export class RabbitMQService implements OnApplicationBootstrap {
         routingKey,
         message,
         process.hrtime.bigint() - start,
-        options,
+        mergedOptions,
         hasErrors,
       );
     }
-
     return !hasErrors;
+  }
+  /**
+   * Publishes an array of messages to the broker.
+   * @param {string} exchangeName - Name of the exchange
+   * @param {string} routingKey - Routing key for publishing
+   * @param {T[]} messages - Array of messages that will be published to RabbitMQ. All messages will be transformed into JSON.
+   * @param {number} batchSize - The number of messages sent per batch,This value is used to avoid sending an excessively high number of messages at once.
+   * **Default:** `100`
+   * @param {PublishOptions} options - Any custom options you want to send with the message, such as headers or properties.
+   * @returns {Promise<T[]>} Returns a confirmation promise.
+   * If **empty**, it means all messages were successfully delivered to an exchange or queue.
+   * If **contains items**, it means they **were not published**!
+   */
+  async publishBulk<T>(
+    exchangeName: string,
+    routingKey: string,
+    messages: T[],
+    options?: PublishOptions & { batchSize?: number }
+  ): Promise<T[]> {
+    const batchSize = options?.batchSize ?? 100;
+    const faileds: T[] = [];
+    for (let i = 0; i < messages.length; i += batchSize) {
+      const chunk = messages.slice(i, i + batchSize);
+      const publisheds = await Promise.allSettled(
+        chunk.map(async (message: T): Promise<T | void> => {
+          const published = await this.publish(
+            exchangeName,
+            routingKey,
+            message,
+            options,
+          );
+          if (published) return Promise.resolve();
+          return Promise.reject({message});
+        }),
+      );
+      for (const result of publisheds) {
+        if (result.status === "rejected") faileds.push(result.reason.message)
+      }
+      if (this.checkHealth() === 0) {
+        faileds.push(...messages.slice(i + batchSize));
+        break;
+      }
+    }
+    return faileds;
   }
 
   async createConsumers(): Promise<ChannelWrapper[]> {

@@ -16,7 +16,8 @@
   "scripts": {
     "test": "NODE_ENV=develop node --expose-gc ./node_modules/jest/bin/jest.js --config ./test/jest.config.json --runInBand --logHeapUsage --coverage",
     "build": "rimraf dist && tsc",
-    "prepublish": "pnpm run build"
+    "prepublish": "pnpm run build",
+    "test:ci": "NODE_ENV=develop node --expose-gc ./node_modules/jest/bin/jest.js --config ./test/jest.config.json"
   },
   "dependencies": {
     "@types/amqplib": "^0.10.6",

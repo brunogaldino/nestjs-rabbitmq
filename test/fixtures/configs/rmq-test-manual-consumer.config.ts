@@ -11,7 +11,7 @@ export class RmqTestManualConsumerConfig implements RabbitOptionsFactory {
 
   createRabbitOptions(): RabbitMQModuleOptions {
     return {
-      connectionString: "amqp://localhost:5672",
+      connectionString: "amqp://guest:guest@localhost:5672",
       delayExchangeName: delayExchangeName,
       extraOptions: {
         consumerManualLoad: true,

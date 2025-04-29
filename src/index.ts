@@ -13,3 +13,5 @@ export {
   RabbitMQConsumerOptions,
   RabbitMQConsumerChannel,
 } from "./rabbitmq.types";
+
+export * from "./test.mocked.module";

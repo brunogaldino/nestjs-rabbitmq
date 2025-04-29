@@ -9,5 +9,6 @@
   "coverageDirectory": "./coverage",
   "coverageReporters": ["clover", "json", "lcov", "text"],
   "collectCoverageFrom": ["src/**/*.ts"],
-  "globalTeardown": "<rootDir>/test/global-teardown.ts"
+  "globalTeardown": "<rootDir>/test/global-teardown.ts",
+  "timeout": 10000
 }

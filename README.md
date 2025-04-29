@@ -16,6 +16,7 @@
     - [The configuration file](#the-configuration-file)
   - [Publishers](#publishers)
     - [Publishing messages](#publishing-messages)
+    - [Publishing messages in bulk](#publishing-messages-in-bulk)
     - [Custom headers](#custom-headers)
   - [Consumers](#consumers)
     - [The messageHandler callback](#the-messagehandler-callback)
@@ -168,10 +169,46 @@ async publishMeTyped() {
   //This will return an error if the object is not properly typed
 }
 ```
-
-The `publish()` method uses [Publish Confirms](https://www.rabbitmq.com/docs/confirms#publisher-confirms)
+The `publish()` and `publishBulk()` methods uses [Publish Confirms](https://www.rabbitmq.com/docs/confirms#publisher-confirms)
 to make sure that the message is delivered to the broker before returning
 the promise.
+
+### Publishing messages in bulk
+```typescript
+import { Injectable } from "@nestjs/common";
+import { RabbitMQService } from "@bgaldino/nestjs-rabbitmq";
+
+@Injectable()
+export class MyService {
+  constructor(private readonly rabbitMQService: RabbitMQService) {}
+}
+
+async publishMe(){
+  const faileds = await this.rabbitMQService.publishBulk('exchange_name', 'routing_key', [{}]);
+}
+
+//or
+
+async publishMeTyped() {
+  const faileds = await this.rabbitMQService.publishBulk<CustomType>('exchange_name', 'routing_key', [{}]);
+  //This will return an error if the object is not properly typed
+}
+```
+
+
+
+The `publishBulk()` method returns only the messages that failed to receive confirmation via Publish Confirms.
+
+The publishBulk() method also provides a batchSize option to control how many messages are sent in parallel. The default value is 100. Use this setting with caution, as setting it too high may lead to excessive memory usage or network saturation.
+
+### Exemple
+```typescript
+
+async publishMe(){
+  const faileds = await this.rabbitMQService.publishBulk('exchange_name', 'routing_key', [{}],{ batchSize: 500 },);
+}
+
+```
 
 ### Custom headers
 

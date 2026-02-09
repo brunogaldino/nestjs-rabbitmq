@@ -24,8 +24,7 @@ import { merge } from "./helper";
 
 @Injectable()
 export class AMQPConnectionManager
-  implements OnModuleInit, OnApplicationBootstrap, OnApplicationShutdown
-{
+  implements OnModuleInit, OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger: Console | Logger;
   private rabbitTerminalErrors: string[] = [
     "channel-error",

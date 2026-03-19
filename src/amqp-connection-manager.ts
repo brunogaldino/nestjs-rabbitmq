@@ -17,10 +17,10 @@ import { RabbitMQConsumer } from "./rabbitmq-consumers";
 import { RabbitOptionsFactory } from "./rabbitmq.interfaces";
 import {
   ConnectionType,
-  RabbitMQConsumerChannel,
   RabbitMQModuleOptions,
 } from "./rabbitmq.types";
 import { merge } from "./helper";
+import { DiscoveryService } from "@nestjs/core";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -50,7 +50,9 @@ export class AMQPConnectionManager
   private connectionBlockedReason: string;
   private consumers: ChannelWrapper[] = [];
 
-  constructor(@Inject("RABBIT_OPTIONS") options: RabbitOptionsFactory) {
+  constructor(
+    private readonly discoveryService: DiscoveryService,
+    @Inject("RABBIT_OPTIONS") options: RabbitOptionsFactory) {
     AMQPConnectionManager.rabbitModuleOptions = merge(
       this.defaultOptions,
       options.createRabbitOptions(),
@@ -245,42 +247,59 @@ export class AMQPConnectionManager
     const consumerList =
       AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
 
-    this.checkDuplicatedQueues(consumerList);
+    // this.checkDuplicatedQueues(consumerList);
+    const providers = this.discoveryService.getProviders()
+    const controllers = this.discoveryService.getControllers()
 
-    for (const consumerEntry of consumerList) {
-      const consumer = consumerEntry.options;
+    for (const consumer of consumerList) {
+      const opts = consumer.options;
+      const wrapper = providers.find(p => p.token == consumer.handler.provider || p.metatype == consumer.handler.provider)
+        ?? controllers.find(p => p.token == consumer.handler.provider || p.metatype == consumer.handler.provider)
+
+      if (!wrapper || !wrapper.instance) {
+
+        throw new Error(`RabbitMQModule: Could not find provider instance for ${consumer.handler.provider.toString()}`);
+      }
+
+      const instance = wrapper.instance
+      const handler = instance[consumer.handler.methodName]
+
+      if (typeof handler !== 'function') {
+        throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
+      }
+      const boundHandler = handler.bind(instance);
 
       this.consumers.push(
         await new RabbitMQConsumer(
           AMQPConnectionManager.consumerConn,
           AMQPConnectionManager.rabbitModuleOptions,
           AMQPConnectionManager.publishChannelWrapper,
-        ).createConsumer(consumer, consumerEntry.messageHandler),
+        ).createConsumer(opts, boundHandler),
       );
     }
 
     AMQPConnectionManager.isConsumersLoaded = true;
   }
 
-  private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {
-    const queueNameList = [];
-    consumerList.map((curr) => queueNameList.push(curr.options.queue));
-    const dedupList = new Set(queueNameList);
-
-    if (dedupList.size != queueNameList.length) {
-      this.logger.error({
-        error: "duplicated_queues",
-        description: "Cannot have multiple queues on different binds",
-        queues: Array.from(
-          new Set(
-            queueNameList.filter(
-              (value, index) => queueNameList.indexOf(value) != index,
-            ),
-          ),
-        ),
-      });
-
-      process.exit(-1);
-    }
-  }
+  // private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {
+  //   const queueNameList = [];
+  //   consumerList.map((curr) => queueNameList.push(curr.options.queue));
+  //   const dedupList = new Set(queueNameList);
+  //
+  //   if (dedupList.size != queueNameList.length) {
+  //     this.logger.error({
+  //       error: "duplicated_queues",
+  //       description: "Cannot have multiple queues on different binds",
+  //       queues: Array.from(
+  //         new Set(
+  //           queueNameList.filter(
+  //             (value, index) => queueNameList.indexOf(value) != index,
+  //           ),
+  //         ),
+  //       ),
+  //     });
+  //
+  //     process.exit(-1);
+  //   }
+  // }
 }

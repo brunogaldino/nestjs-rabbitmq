@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Logger, Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
@@ -116,12 +116,16 @@ export type RabbitMQAssertExchange = {
 
 export type RabbitMQConsumerChannel = {
   options: RabbitMQConsumerOptions;
+  handler: {
+    provider: Type<any> | string | symbol;
+    methodName: string
+  }
 
-  /** Callback bind that will be declared as consumer
-   * This handler will follow the `IRabbitHandler` interface
-   * @example messageHandler: this.yourService.messageHandler.bind(this.yourService)
-   */
-  messageHandler: IRabbitHandler;
+  // /** Callback bind that will be declared as consumer
+  //  * This handler will follow the `IRabbitHandler` interface
+  //  * @example messageHandler: this.yourService.messageHandler.bind(this.yourService)
+  //  */
+  // messageHandler: IRabbitHandler;
 };
 
 export type RabbitMQModuleOptions = {

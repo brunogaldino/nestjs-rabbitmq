@@ -12,4 +12,5 @@ export {
   RabbitMQAssertExchange,
   RabbitMQConsumerOptions,
   RabbitMQConsumerChannel,
+  defineRabbitConsumer,
 } from "./rabbitmq.types";

@@ -1,6 +1,6 @@
 {
   "name": "@bgaldino/nestjs-rabbitmq",
-  "version": "1.5.1",
+  "version": "2.0.0-rc1",
   "description": "A different way of configuring your RabbitMQ",
   "main": "dist/index.js",
   "author": "Bruno Galdino <brunogaldinoc@gmail.com>",

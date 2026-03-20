@@ -34,6 +34,8 @@
   - [License](#license)
   <!--toc:end-->
 
+## The readme is outdated until I finish the updated for the v2
+
 ## Description
 
 This module features an opinionated way of configuring the RabbitMQ connection

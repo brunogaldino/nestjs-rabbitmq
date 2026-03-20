@@ -1,8 +1,8 @@
-import { Logger, Type } from "@nestjs/common";
+import { Logger, ModuleMetadata, Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
-  IRabbitHandler,
+  RabbitOptionsFactory,
 } from "./rabbitmq.interfaces";
 
 export type RabbitMQExchangeTypes = "direct" | "topic" | "fanout" | "headers";
@@ -114,11 +114,11 @@ export type RabbitMQAssertExchange = {
   };
 };
 
-export type RabbitMQConsumerChannel = {
+export type RabbitMQConsumerChannel<T = any> = {
   options: RabbitMQConsumerOptions;
   handler: {
-    provider: Type<any> | string | symbol;
-    methodName: string
+    provider: Type<T>;
+    methodName: MethodNames<T>;
   }
 
   // /** Callback bind that will be declared as consumer
@@ -189,3 +189,40 @@ export type RabbitMQModuleOptions = {
     reconnectTimeInSeconds?: number;
   };
 };
+
+export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
+  /**
+   * Factory function that returns the configuration object
+   */
+  useFactory?: (...args: any[]) => Promise<RabbitMQModuleOptions> | RabbitMQModuleOptions;
+
+  /**
+   * Optional list of providers to be injected into the factory function.
+   */
+  inject?: any[];
+
+  imports?: any[];
+  providers?: any[];
+
+  /**
+   * Optional class that implements the RabbitMQOptionsFactory interface
+   */
+  useClass?: Type<RabbitOptionsFactory>;
+
+  /**
+   * Optional existing provider to be reused
+   */
+  useExisting?: Type<any>;
+}
+
+// Define a type that extracts only method names from a class
+export type MethodNames<T> = {
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  [K in keyof T]: T[K] extends Function ? K : never;
+}[keyof T] & string;
+
+export function defineRabbitConsumer<T>(
+  config: RabbitMQConsumerChannel<T>
+): RabbitMQConsumerChannel<T> {
+  return config;
+}

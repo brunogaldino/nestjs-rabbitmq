@@ -13,14 +13,13 @@ import {
 } from "amqp-connection-manager";
 import { ConfirmChannel } from "amqplib";
 import { hostname } from "node:os";
+import { merge } from "./helper";
 import { RabbitMQConsumer } from "./rabbitmq-consumers";
-import { RabbitOptionsFactory } from "./rabbitmq.interfaces";
 import {
   ConnectionType,
   RabbitMQModuleOptions,
 } from "./rabbitmq.types";
-import { merge } from "./helper";
-import { DiscoveryService } from "@nestjs/core";
+import { ModuleRef } from "@nestjs/core";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -51,11 +50,12 @@ export class AMQPConnectionManager
   private consumers: ChannelWrapper[] = [];
 
   constructor(
-    private readonly discoveryService: DiscoveryService,
-    @Inject("RABBIT_OPTIONS") options: RabbitOptionsFactory) {
+    @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
+    private readonly moduleRef: ModuleRef,
+  ) {
     AMQPConnectionManager.rabbitModuleOptions = merge(
       this.defaultOptions,
-      options.createRabbitOptions(),
+      options
     );
 
     this.logger =
@@ -247,34 +247,22 @@ export class AMQPConnectionManager
     const consumerList =
       AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
 
-    // this.checkDuplicatedQueues(consumerList);
-    const providers = this.discoveryService.getProviders()
-    const controllers = this.discoveryService.getControllers()
-
     for (const consumer of consumerList) {
       const opts = consumer.options;
-      const wrapper = providers.find(p => p.token == consumer.handler.provider || p.metatype == consumer.handler.provider)
-        ?? controllers.find(p => p.token == consumer.handler.provider || p.metatype == consumer.handler.provider)
 
-      if (!wrapper || !wrapper.instance) {
-
-        throw new Error(`RabbitMQModule: Could not find provider instance for ${consumer.handler.provider.toString()}`);
-      }
-
-      const instance = wrapper.instance
+      const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
       const handler = instance[consumer.handler.methodName]
 
       if (typeof handler !== 'function') {
         throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
       }
-      const boundHandler = handler.bind(instance);
 
       this.consumers.push(
         await new RabbitMQConsumer(
           AMQPConnectionManager.consumerConn,
           AMQPConnectionManager.rabbitModuleOptions,
           AMQPConnectionManager.publishChannelWrapper,
-        ).createConsumer(opts, boundHandler),
+        ).createConsumer(opts, handler.bind(instance)),
       );
     }
 

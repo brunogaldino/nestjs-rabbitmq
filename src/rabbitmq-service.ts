@@ -97,17 +97,16 @@ export class RabbitMQService implements OnApplicationBootstrap {
 
     const consumerList = [];
 
-    for (const consumerEntry of consumerOptionList) {
-      const consumerOptions = consumerEntry.options;
-
-      const consumer = await new RabbitMQConsumer(
-        AMQPConnectionManager.consumerConn,
-        AMQPConnectionManager.rabbitModuleOptions,
-        AMQPConnectionManager.publishChannelWrapper,
-      ).createConsumer(consumerOptions, consumerEntry.messageHandler);
-
-      consumerList.push(consumer);
-    }
+    // for (const consumerEntry of consumerOptionList) { const consumerOptions = consumerEntry.options;
+    //
+    //   const consumer = await new RabbitMQConsumer(
+    //     AMQPConnectionManager.consumerConn,
+    //     AMQPConnectionManager.rabbitModuleOptions,
+    //     AMQPConnectionManager.publishChannelWrapper,
+    //   ).createConsumer(consumerOptions, consumerEntry.messageHandler);
+    //
+    //   consumerList.push(consumer);
+    // }
 
     this.logger.debug("Initiating RabbitMQ consumers manually");
     AMQPConnectionManager.isConsumersLoaded = true;

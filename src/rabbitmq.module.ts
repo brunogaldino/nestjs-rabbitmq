@@ -1,29 +1,77 @@
-import { DynamicModule, Module, Type } from "@nestjs/common";
-import { DiscoveryModule } from '@nestjs/core';
+import { DynamicModule, Global, Module, Provider } from "@nestjs/common";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { RabbitMQService } from "./rabbitmq-service";
+import { RabbitMQModuleAsyncOptions, RabbitMQModuleOptions } from "./rabbitmq.types";
 import { RabbitOptionsFactory } from "./rabbitmq.interfaces";
 
-export type RabbitOptions = {
-  useClass: Type<RabbitOptionsFactory>;
-};
 
+
+@Global()
 @Module({})
 export class RabbitMQModule {
-  static register(options: RabbitOptions): DynamicModule {
+  static forRoot(options: RabbitMQModuleOptions): DynamicModule {
     return {
       module: RabbitMQModule,
       global: true,
-      imports: [DiscoveryModule],
       providers: [
+        { provide: 'RABBIT_OPTIONS', useValue: options },
         AMQPConnectionManager,
-        {
-          provide: "RABBIT_OPTIONS",
-          useClass: options.useClass,
-        },
         RabbitMQService,
       ],
       exports: [RabbitMQService],
     };
+  }
+
+  static forRootAsync(options: RabbitMQModuleAsyncOptions): DynamicModule {
+    const injectProviders = (options.inject || []).filter(
+      (item) => typeof item === 'function'
+    ) as Provider[];
+
+    return {
+      module: RabbitMQModule,
+      imports: options.imports || [],
+      providers: [
+        ...injectProviders,
+        ...this.createAsyncProviders(options),
+        AMQPConnectionManager,
+        RabbitMQService
+      ],
+      exports: [RabbitMQService],
+    };
+  }
+
+  private static createAsyncOptionsProvider(options: RabbitMQModuleAsyncOptions): Provider {
+    if (options.useFactory) {
+      return {
+        provide: 'RABBIT_OPTIONS',
+        useFactory: options.useFactory,
+        inject: options.inject || [],
+      };
+    }
+
+    return {
+      provide: 'RABBIT_OPTIONS',
+      useFactory: async (optionsFactory: RabbitOptionsFactory) =>
+        optionsFactory.createRabbitOptions(),
+      inject: [options.useClass || options.useExisting],
+    };
+  }
+
+  private static createAsyncProviders(options: RabbitMQModuleAsyncOptions): Provider[] {
+    if (options.useFactory || options.useExisting) {
+      return [this.createAsyncOptionsProvider(options)];
+    }
+
+    if (options.useClass) {
+      return [
+        this.createAsyncOptionsProvider(options),
+        {
+          provide: options.useClass,
+          useClass: options.useClass,
+        },
+      ];
+    }
+
+    return [];
   }
 }

@@ -41,24 +41,24 @@ export class AMQPConnectionManager
       reconnectTimeInSeconds: 5,
     },
   };
-  public static rabbitModuleOptions: RabbitMQModuleOptions;
+  private rabbitModuleOptions: RabbitMQModuleOptions;
+  private connectionBlockedReason: string;
+
   public static publishChannelWrapper: ChannelWrapper = null;
   public static consumerConn: AmqpConnectionManager;
   public static publisherConn: AmqpConnectionManager;
-  private connectionBlockedReason: string;
 
   constructor(
     @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
     private readonly moduleRef: ModuleRef,
   ) {
-    AMQPConnectionManager.rabbitModuleOptions = merge(
+    this.rabbitModuleOptions = merge(
       this.defaultOptions,
       options
     );
 
-    this.logger =
-      AMQPConnectionManager.rabbitModuleOptions.extraOptions?.loggerInstance ??
-      new Logger(AMQPConnectionManager.name);
+    process.env.RABBITMQ_LOG_TYPE = this.rabbitModuleOptions.extraOptions.logType;
+    this.logger = new Logger(AMQPConnectionManager.name);
   }
 
   async onModuleInit() {
@@ -67,7 +67,7 @@ export class AMQPConnectionManager
 
   async onApplicationBootstrap() {
     if (
-      AMQPConnectionManager.rabbitModuleOptions.extraOptions.consumerManualLoad
+      this.rabbitModuleOptions.extraOptions.consumerManualLoad
     )
       return;
     await this.createConsumers();
@@ -84,10 +84,10 @@ export class AMQPConnectionManager
   private async connect() {
     const params = {
       heartbeatIntervalInSeconds:
-        AMQPConnectionManager.rabbitModuleOptions.extraOptions
+        this.rabbitModuleOptions.extraOptions
           .heartbeatIntervalInSeconds,
       reconnectTimeInSeconds:
-        AMQPConnectionManager.rabbitModuleOptions.extraOptions
+        this.rabbitModuleOptions.extraOptions
           .reconnectTimeInSeconds,
       connectionOptions: {
         keepAlive: true,
@@ -101,7 +101,7 @@ export class AMQPConnectionManager
 
     await new Promise((resolve) => {
       AMQPConnectionManager.consumerConn = connect(
-        AMQPConnectionManager.rabbitModuleOptions.connectionString,
+        this.rabbitModuleOptions.connectionString,
         {
           ...params,
           connectionOptions: {
@@ -117,7 +117,7 @@ export class AMQPConnectionManager
 
     await new Promise((resolve) => {
       AMQPConnectionManager.publisherConn = connect(
-        AMQPConnectionManager.rabbitModuleOptions.connectionString,
+        this.rabbitModuleOptions.connectionString,
         {
           ...params,
           connectionOptions: {
@@ -217,7 +217,7 @@ export class AMQPConnectionManager
       });
     });
 
-    for (const publisher of AMQPConnectionManager.rabbitModuleOptions
+    for (const publisher of this.rabbitModuleOptions
       ?.assertExchanges ?? []) {
       await AMQPConnectionManager.publishChannelWrapper.addSetup(
         async (channel: ConfirmChannel) => {
@@ -239,7 +239,7 @@ export class AMQPConnectionManager
 
   public async createConsumers(group?: string): Promise<void> {
     const consumerList =
-      AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
+      this.rabbitModuleOptions.consumerChannels ?? [];
     const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
 
     if (consumerGroup !== "rabbit-default") {
@@ -250,6 +250,8 @@ export class AMQPConnectionManager
 
     for (const consumer of consumerList) {
       const opts = consumer.options;
+      opts.group = opts?.group ?? consumerGroup
+
       if (opts.group !== consumerGroup) {
         continue;
       }
@@ -263,7 +265,7 @@ export class AMQPConnectionManager
 
       await new RabbitMQConsumer(
         AMQPConnectionManager.consumerConn,
-        AMQPConnectionManager.rabbitModuleOptions,
+        this.rabbitModuleOptions,
         AMQPConnectionManager.publishChannelWrapper,
       ).createConsumer(opts, handler.bind(instance))
 

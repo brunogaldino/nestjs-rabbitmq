@@ -17,7 +17,7 @@ export interface IRabbitDeadletterCallback<T = any> {
 }
 
 export interface IDelayProgression {
-  (attempt: number): number;
+  (content: any, attempt: number, exception: Error): Promise<number> | number;
 }
 
 export interface RabbitOptionsFactory {

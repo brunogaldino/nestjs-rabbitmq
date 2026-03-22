@@ -59,7 +59,11 @@ export type RabbitMQConsumerOptions = {
     maxAttempts?: number;
 
     /** The delay amount in MS before the retry sends the message to the original queue
-     * @default: 5000*/
+     * The return can have three effects:
+     *  - >1: It will send to the delay queue for that amount of time before returning it to the end of the original queue 
+     *  - =0: Should retry right now, and will republish at the end of the original queue 
+     *  - -1: Should skip any retrying attempt and send to the DLQStrategy 
+     * @default: () => 5000*/
     delay?: IDelayProgression;
   };
 
@@ -175,13 +179,6 @@ export type RabbitMQModuleOptions = {
     /** Enables the message inspection of different parts of the RabbitMQ
      * this option can be overriden by using the env RABBITMQ_LOG_TYPE */
     logType?: LogType;
-
-    /**
-     * Will use the given logger instead of the default Logger from NestJS. Ensure that the logger follows the
-     * NestJS Logger or Console interfaces to be used
-     * @default new Logger()
-     */
-    loggerInstance?: Console | Logger;
 
     /**
      *  Interval to send heartbeats to the broker.

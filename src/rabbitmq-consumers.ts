@@ -59,9 +59,7 @@ export class RabbitMQConsumer {
       (process.env.RABBITMQ_LOG_TYPE as LogType) ??
       this.options.extraOptions.logType;
 
-    this.logger =
-      options?.extraOptions?.loggerInstance ??
-      new Logger(RabbitMQConsumer.name);
+    this.logger = new Logger(RabbitMQConsumer.name);
   }
 
   public async createConsumer(
@@ -69,7 +67,6 @@ export class RabbitMQConsumer {
     messageHandler: IRabbitHandler,
   ): Promise<ChannelWrapper> {
     consumer = merge(this.defaultConsumerOptions, consumer);
-
     const consumerChannel = this.connection.createChannel({
       confirm: true,
       name: consumer.queue,
@@ -134,7 +131,7 @@ export class RabbitMQConsumer {
       });
     } catch (e) {
       hasErrors = e;
-      hasRetried = await this.processRetry(consumer, message);
+      hasRetried = await this.processRetry(consumer, message, e);
     } finally {
       if (["consumer", "all"].includes(this.logType) || hasErrors)
         this.inspectConsumer({
@@ -182,6 +179,7 @@ export class RabbitMQConsumer {
   private async processRetry(
     consumer: RabbitMQConsumerOptions,
     message: ConsumeMessage,
+    error: Error,
   ): Promise<boolean> {
     let isPublished = false;
 
@@ -194,7 +192,10 @@ export class RabbitMQConsumer {
       const maxRetry = consumer.retryStrategy.maxAttempts;
 
       if (retryCount < maxRetry) {
-        const retryDelay = consumer.retryStrategy.delay(retryCount);
+        const retryDelay = await consumer.retryStrategy.delay(tryParseJson(message.content.toString("utf8")), retryCount, error);
+        if (retryDelay < 0) {
+          return false;
+        }
 
         try {
           isPublished = await this.publishChannel.publish(
@@ -271,6 +272,7 @@ export class RabbitMQConsumer {
       channel.ack(message);
     } else if (hasErrors && !hasRetried) {
       let shouldNack = true;
+      let hasError = null
 
       try {
         shouldNack =
@@ -278,13 +280,16 @@ export class RabbitMQConsumer {
             message.content.toString("utf8"),
           )) ?? true;
       } catch (e) {
+        hasError = e
+      } finally {
         this.logger.error({
           type: "consumer",
-          title: `[AMQP] [DEADLETTER] ${message.fields.exchange} ${message.fields.routingKey} ${message.fields} ${consumer.queue}`,
+          title: `[AMQP] [DEADLETTER] ${message.fields.exchange} ${message.fields.routingKey} ${consumer.queue}`,
+          fields: message.fields,
           error: {
-            stack: e?.stack,
-            message: e?.message,
-            name: e?.name,
+            stack: hasError?.stack,
+            message: hasError?.message,
+            name: hasError?.name,
           },
         });
       }

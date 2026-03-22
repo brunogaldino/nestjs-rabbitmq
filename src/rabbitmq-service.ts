@@ -9,14 +9,10 @@ import { merge } from "./helper";
 @Injectable()
 export class RabbitMQService implements OnApplicationBootstrap {
   private logType: LogType;
-  private logger: Console | Logger =
-    AMQPConnectionManager.rabbitModuleOptions?.extraOptions?.loggerInstance ??
-    new Logger(RabbitMQService.name);
+  private logger: Logger = new Logger(RabbitMQService.name);
 
   onApplicationBootstrap() {
-    this.logType =
-      (process.env.RABBITMQ_LOG_TYPE as LogType) ??
-      AMQPConnectionManager.rabbitModuleOptions.extraOptions.logType;
+    this.logType = process.env.RABBITMQ_LOG_TYPE as LogType
   }
 
   /**

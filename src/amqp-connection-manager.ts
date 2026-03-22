@@ -45,9 +45,7 @@ export class AMQPConnectionManager
   public static publishChannelWrapper: ChannelWrapper = null;
   public static consumerConn: AmqpConnectionManager;
   public static publisherConn: AmqpConnectionManager;
-  public static isConsumersLoaded: boolean = false;
   private connectionBlockedReason: string;
-  private consumers: ChannelWrapper[] = [];
 
   constructor(
     @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
@@ -81,10 +79,6 @@ export class AMQPConnectionManager
     this.logger.log("Closing RabbitMQ Connection");
     await AMQPConnectionManager?.consumerConn?.close();
     await AMQPConnectionManager?.publisherConn?.close();
-  }
-
-  public getConsumers() {
-    return this.consumers;
   }
 
   private async connect() {
@@ -191,7 +185,7 @@ export class AMQPConnectionManager
     }
   }
 
-  public getConnection(type: ConnectionType) {
+  private getConnection(type: ConnectionType) {
     if (type === "publisher") {
       return AMQPConnectionManager.publisherConn;
     } else {
@@ -243,12 +237,22 @@ export class AMQPConnectionManager
     }
   }
 
-  private async createConsumers(): Promise<void> {
+  public async createConsumers(group?: string): Promise<void> {
     const consumerList =
       AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
+    const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
+
+    if (consumerGroup !== "rabbit-default") {
+      this.logger.log(`Initializing consumers with group: ${consumerGroup}`)
+    } else {
+      this.logger.log(`No groups associated, initializing all consumers without groups`)
+    }
 
     for (const consumer of consumerList) {
       const opts = consumer.options;
+      if (opts.group !== consumerGroup) {
+        continue;
+      }
 
       const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
       const handler = instance[consumer.handler.methodName]
@@ -257,16 +261,18 @@ export class AMQPConnectionManager
         throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
       }
 
-      this.consumers.push(
-        await new RabbitMQConsumer(
-          AMQPConnectionManager.consumerConn,
-          AMQPConnectionManager.rabbitModuleOptions,
-          AMQPConnectionManager.publishChannelWrapper,
-        ).createConsumer(opts, handler.bind(instance)),
-      );
-    }
+      await new RabbitMQConsumer(
+        AMQPConnectionManager.consumerConn,
+        AMQPConnectionManager.rabbitModuleOptions,
+        AMQPConnectionManager.publishChannelWrapper,
+      ).createConsumer(opts, handler.bind(instance))
 
-    AMQPConnectionManager.isConsumersLoaded = true;
+      this.logger.debug({
+        type: "initialization",
+        title: `[AMQP] [INIT] Initializing consumer ${opts.queue}`,
+        binding: { exchange: opts.exchangeName, routingKey: opts.routingKey, group: opts.group },
+      })
+    }
   }
 
   // private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {

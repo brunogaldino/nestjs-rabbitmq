@@ -2,8 +2,6 @@ import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { LogType } from "./rabbitmq.types";
-import { RabbitMQConsumer } from "./rabbitmq-consumers";
-import { ChannelWrapper } from "amqp-connection-manager";
 import stringify from "faster-stable-stringify";
 import { PublishOptions } from "amqp-connection-manager/dist/types/ChannelWrapper";
 import { merge } from "./helper";
@@ -84,33 +82,6 @@ export class RabbitMQService implements OnApplicationBootstrap {
     }
 
     return !hasErrors;
-  }
-
-  async createConsumers(): Promise<ChannelWrapper[]> {
-    if (AMQPConnectionManager.isConsumersLoaded)
-      throw new Error(
-        "Consumers already initialized. If you wish to start it manually, see consumeManualLoad",
-      );
-
-    const consumerOptionList =
-      AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
-
-    const consumerList = [];
-
-    // for (const consumerEntry of consumerOptionList) { const consumerOptions = consumerEntry.options;
-    //
-    //   const consumer = await new RabbitMQConsumer(
-    //     AMQPConnectionManager.consumerConn,
-    //     AMQPConnectionManager.rabbitModuleOptions,
-    //     AMQPConnectionManager.publishChannelWrapper,
-    //   ).createConsumer(consumerOptions, consumerEntry.messageHandler);
-    //
-    //   consumerList.push(consumer);
-    // }
-
-    this.logger.debug("Initiating RabbitMQ consumers manually");
-    AMQPConnectionManager.isConsumersLoaded = true;
-    return consumerList;
   }
 
   private inspectPublisher(

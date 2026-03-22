@@ -33,6 +33,7 @@ export class RabbitMQConsumer {
     durable: true,
     prefetch: 10,
     autoDelete: false,
+    group: "rabbit-default",
     retryStrategy: {
       enabled: true,
       maxAttempts: 5,

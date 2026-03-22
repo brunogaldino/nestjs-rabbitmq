@@ -79,6 +79,14 @@ export type RabbitMQConsumerOptions = {
     suffix?: string;
   };
 
+  /** Groups are used to define which consumers will be enabled on a given deployment. 
+   * The application can define which consumer group will be enabled by setting the `RMQ_CONSUMER_GROUP` environment variable 
+   * OR by passing the group during the `createConsumers()` call when `consumerManualLoad = true` option is set
+   *
+   * By default, all consumers with no defined group will be initialized.
+   */
+  group?: string;
+
   // /** Override default suffix that are defined in this library */
   // suffixOptions?: {
   //   /**
@@ -202,6 +210,7 @@ export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'import
   inject?: any[];
 
   imports?: any[];
+
   providers?: any[];
 
   /**
@@ -226,3 +235,4 @@ export function defineRabbitConsumer<T>(
 ): RabbitMQConsumerChannel<T> {
   return config;
 }
+

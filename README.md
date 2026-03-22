@@ -445,7 +445,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   await app.listen(3000);
 
-  const rabbit: RabbitMQService = app.get(RabbitMQService);
+  const rabbit: AMQPConnectionManager = app.get(AMQPConnectionManager);
   await rabbit.createConsumers();
 }
 bootstrap();

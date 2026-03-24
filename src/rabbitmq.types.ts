@@ -1,4 +1,4 @@
-import { Logger, ModuleMetadata, Type } from "@nestjs/common";
+import { ModuleMetadata, Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
@@ -10,6 +10,11 @@ export type LogType = "all" | "consumer" | "publisher" | "none";
 export type ConnectionType = "consumer" | "publisher";
 
 export type RabbitMQConsumerOptions = {
+  /** If consumer should be enabled or not
+   * @default true
+   */
+  enabled: boolean;
+
   /** Name of the Queue */
   queue: string;
 

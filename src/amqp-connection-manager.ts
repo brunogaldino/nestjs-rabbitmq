@@ -252,6 +252,14 @@ export class AMQPConnectionManager
       const opts = consumer.options;
       opts.group = opts?.group ?? consumerGroup
 
+      if (!opts.enabled) {
+        this.logger.debug({
+          type: "initialization",
+          title: `[AMQP] [INIT] Consumer ${opts.queue} is DISABLED`,
+        })
+        continue;
+      }
+
       if (opts.group !== consumerGroup) {
         continue;
       }

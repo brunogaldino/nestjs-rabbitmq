@@ -74,6 +74,9 @@ export class RabbitMQConsumer {
         return Promise.all([
           channel.prefetch(consumer.prefetch),
           channel.assertQueue(consumer.queue, {
+            arguments: {
+              'x-queue-type': 'quorum'
+            },
             durable: consumer.durable,
             autoDelete: consumer.autoDelete,
             deadLetterRoutingKey: `${consumer.queue}${consumer.deadLetterStrategy?.suffix ?? ".dlq"}`,

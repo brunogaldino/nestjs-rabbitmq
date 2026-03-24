@@ -90,15 +90,6 @@ export type RabbitMQConsumerOptions = {
    * By default, all consumers with no defined group will be initialized.
    */
   group?: string;
-
-  // /** Override default suffix that are defined in this library */
-  // suffixOptions?: {
-  //   /**
-  //    * Suffix used when setting up the DLQ Queues
-  //    * @default .dlq
-  //    */
-  //   dlqSuffix?: string;
-  // };
 };
 
 export type RabbitMQAssertExchange = {

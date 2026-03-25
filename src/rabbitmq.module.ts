@@ -2,9 +2,7 @@ import { DynamicModule, Global, Module, Provider } from "@nestjs/common";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { RabbitMQService } from "./rabbitmq-service";
 import { RabbitMQModuleAsyncOptions, RabbitMQModuleOptions } from "./rabbitmq.types";
-import { RabbitOptionsFactory } from "./rabbitmq.interfaces";
-
-
+import { RabbitMQOptionsFactory } from "./rabbitmq.interfaces";
 
 @Global()
 @Module({})
@@ -51,7 +49,7 @@ export class RabbitMQModule {
 
     return {
       provide: 'RABBIT_OPTIONS',
-      useFactory: async (optionsFactory: RabbitOptionsFactory) =>
+      useFactory: async (optionsFactory: RabbitMQOptionsFactory) =>
         optionsFactory.createRabbitOptions(),
       inject: [options.useClass || options.useExisting],
     };

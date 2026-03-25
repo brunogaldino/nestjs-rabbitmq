@@ -2,7 +2,7 @@ import { ModuleMetadata, Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
-  RabbitOptionsFactory,
+  RabbitMQOptionsFactory,
 } from "./rabbitmq.interfaces";
 
 export type RabbitMQExchangeTypes = "direct" | "topic" | "fanout" | "headers";
@@ -13,7 +13,7 @@ export type RabbitMQConsumerOptions = {
   /** If consumer should be enabled or not
    * @default true
    */
-  enabled: boolean;
+  enabled?: boolean;
 
   /** Name of the Queue */
   queue: string;
@@ -115,25 +115,14 @@ export type RabbitMQAssertExchange = {
      * @remarks **WARNING**: RabbitMQ will delete the queue no matter the amount of messages enqueued.
      * @default false */
     autoDelete?: boolean;
-
-    /** Declare the exchange as a delayed one, in this scenario the exchange will be declated as a `x-delayed-message` with an argument `x-delayed-type: ${type}`
-     * @default false */
-    isDelayed?: boolean;
   };
 };
 
-export type RabbitMQConsumerChannel<T = any> = {
-  options: RabbitMQConsumerOptions;
+export type RabbitMQConsumerChannel<T = any> = RabbitMQConsumerOptions & {
   handler: {
     provider: Type<T>;
     methodName: MethodNames<T>;
   }
-
-  // /** Callback bind that will be declared as consumer
-  //  * This handler will follow the `IRabbitHandler` interface
-  //  * @example messageHandler: this.yourService.messageHandler.bind(this.yourService)
-  //  */
-  // messageHandler: IRabbitHandler;
 };
 
 export type RabbitMQModuleOptions = {
@@ -209,7 +198,7 @@ export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'import
   /**
    * Optional class that implements the RabbitMQOptionsFactory interface
    */
-  useClass?: Type<RabbitOptionsFactory>;
+  useClass?: Type<RabbitMQOptionsFactory>;
 
   /**
    * Optional existing provider to be reused

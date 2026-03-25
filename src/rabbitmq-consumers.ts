@@ -4,7 +4,7 @@ import { ConfirmChannel, ConsumeMessage } from "amqplib";
 import stringify from "faster-stable-stringify";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { merge, tryParseJson } from "./helper";
-import { IRabbitHandler } from "./rabbitmq.interfaces";
+import { IRabbitMQHandler } from "./rabbitmq.interfaces";
 import {
   LogType,
   RabbitMQConsumerOptions,
@@ -64,7 +64,7 @@ export class RabbitMQConsumer {
 
   public async createConsumer(
     consumer: RabbitMQConsumerOptions,
-    messageHandler: IRabbitHandler,
+    messageHandler: IRabbitMQHandler,
   ): Promise<ChannelWrapper> {
     consumer = merge(this.defaultConsumerOptions, consumer);
     const consumerChannel = this.connection.createChannel({
@@ -120,7 +120,7 @@ export class RabbitMQConsumer {
     message: ConsumeMessage,
     channel: ConfirmChannel,
     consumer: RabbitMQConsumerOptions,
-    callback: IRabbitHandler,
+    callback: IRabbitMQHandler,
   ): Promise<void> {
     let hasErrors = null;
     let hasRetried = false;
@@ -157,26 +157,24 @@ export class RabbitMQConsumer {
     channel: ConfirmChannel,
     consumer: RabbitMQConsumerOptions,
   ): Promise<void> {
+    const waitQueue = `${consumer.queue}.retry`;
     const deadletterQueue = `${consumer.queue}${consumer.deadLetterStrategy?.suffix ?? ".dlq"}`;
     await channel.assertQueue(deadletterQueue, { durable: true });
 
+    console.log(consumer?.retryStrategy?.enabled)
     if (consumer?.retryStrategy?.enabled == false) {
-      await channel.unbindQueue(
-        consumer.queue,
-        this.delayExchange,
-        consumer.queue,
-      );
-    } else {
-      await channel.assertExchange(this.delayExchange, "x-delayed-message", {
-        durable: true,
-        arguments: { "x-delayed-type": "direct" },
-      });
-      await channel.bindQueue(
-        consumer.queue,
-        this.delayExchange,
-        consumer.queue,
-      );
+      return;
     }
+
+    await channel.assertExchange(this.delayExchange, "topic", { durable: true });
+    await channel.assertQueue(waitQueue, {
+      durable: true,
+      arguments: {
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": consumer.queue,
+      },
+    });
+    await channel.bindQueue(waitQueue, this.delayExchange, consumer.queue);
   }
 
   private async processRetry(
@@ -209,8 +207,8 @@ export class RabbitMQConsumer {
               headers: {
                 ...message.properties.headers,
                 "x-retries-count": retryCount + 1,
-                "x-delay": retryDelay,
               },
+              expiration: retryDelay,
               deliveryMode: 2, //persistent message
               persistent: true,
             },

@@ -221,16 +221,9 @@ export class AMQPConnectionManager
       ?.assertExchanges ?? []) {
       await AMQPConnectionManager.publishChannelWrapper.addSetup(
         async (channel: ConfirmChannel) => {
-          const isDelayed = publisher.options?.isDelayed ?? false;
-          const type = isDelayed ? "x-delayed-message" : publisher.type;
-          const argument = isDelayed
-            ? { arguments: { "x-delayed-type": publisher.type } }
-            : null;
-
-          await channel.assertExchange(publisher.name, type, {
+          await channel.assertExchange(publisher.name, publisher.type, {
             durable: publisher?.options?.durable ?? true,
             autoDelete: publisher?.options?.autoDelete ?? false,
-            ...argument,
           });
         },
       );
@@ -249,20 +242,19 @@ export class AMQPConnectionManager
     }
 
     for (const consumer of consumerList) {
-      const opts = consumer.options;
-      opts.group = opts?.group ?? consumerGroup
-
-      if (!opts.enabled) {
-        this.logger.debug({
-          type: "initialization",
-          title: `[AMQP] [INIT] Consumer ${opts.queue} is DISABLED`,
-        })
+      consumer.group = consumer?.group ?? consumerGroup
+      if (consumer.group !== consumerGroup) {
         continue;
       }
 
-      if (opts.group !== consumerGroup) {
-        continue;
-      }
+      // if (!!consumer.enabled && !consumer.enabled) {
+      //   this.logger.debug({
+      //     type: "initialization",
+      //     title: `[AMQP] [INIT] Consumer ${consumer.queue} is DISABLED`,
+      //   })
+      //   continue;
+      // }
+
 
       const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
       const handler = instance[consumer.handler.methodName]
@@ -275,35 +267,13 @@ export class AMQPConnectionManager
         AMQPConnectionManager.consumerConn,
         this.rabbitModuleOptions,
         AMQPConnectionManager.publishChannelWrapper,
-      ).createConsumer(opts, handler.bind(instance))
+      ).createConsumer(consumer, handler.bind(instance))
 
       this.logger.debug({
         type: "initialization",
-        title: `[AMQP] [INIT] Initializing consumer ${opts.queue}`,
-        binding: { exchange: opts.exchangeName, routingKey: opts.routingKey, group: opts.group },
+        title: `[AMQP] [INIT] Initializing consumer ${consumer.queue}`,
+        binding: { exchange: consumer.exchangeName, routingKey: consumer.routingKey, group: consumer.group },
       })
     }
   }
-
-  // private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {
-  //   const queueNameList = [];
-  //   consumerList.map((curr) => queueNameList.push(curr.options.queue));
-  //   const dedupList = new Set(queueNameList);
-  //
-  //   if (dedupList.size != queueNameList.length) {
-  //     this.logger.error({
-  //       error: "duplicated_queues",
-  //       description: "Cannot have multiple queues on different binds",
-  //       queues: Array.from(
-  //         new Set(
-  //           queueNameList.filter(
-  //             (value, index) => queueNameList.indexOf(value) != index,
-  //           ),
-  //         ),
-  //       ),
-  //     });
-  //
-  //     process.exit(-1);
-  //   }
-  // }
 }

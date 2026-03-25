@@ -478,7 +478,7 @@ And should be good to go
 
 - [x] Add tests
 - [ ] Improve semantics of the config file
-- [ ] Offer a retry mechanism without the `x-delay`
+- [x] Offer a retry mechanism without the `x-delay`
 - [ ] Make the publisher method strongly typed based on the `assertExchanges`
       `exchangeName` and `routingKeys` configurations
 

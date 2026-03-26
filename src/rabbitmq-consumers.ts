@@ -20,6 +20,16 @@ type InspectInput = {
   isDead: boolean;
 };
 
+type ResolvedConsumerOptions = RabbitMQConsumerOptions & {
+  autoAck: boolean;
+  durable: boolean;
+  prefetch: number;
+  autoDelete: boolean;
+  group: string;
+  retryStrategy: Required<NonNullable<RabbitMQConsumerOptions["retryStrategy"]>>;
+  deadLetterStrategy: Required<NonNullable<RabbitMQConsumerOptions["deadLetterStrategy"]>>;
+};
+
 export class RabbitMQConsumer {
   private logger: Console | Logger;
 
@@ -66,46 +76,46 @@ export class RabbitMQConsumer {
     consumer: RabbitMQConsumerOptions,
     messageHandler: IRabbitMQHandler,
   ): Promise<ChannelWrapper> {
-    consumer = merge(this.defaultConsumerOptions, consumer);
+    const resolved = merge(this.defaultConsumerOptions, consumer) as ResolvedConsumerOptions;
     const consumerChannel = this.connection.createChannel({
       confirm: true,
-      name: consumer.queue,
+      name: resolved.queue,
       setup: (channel: ConfirmChannel) => {
         return Promise.all([
-          channel.prefetch(consumer.prefetch),
-          channel.assertQueue(consumer.queue, {
+          channel.prefetch(resolved.prefetch),
+          channel.assertQueue(resolved.queue, {
             arguments: {
               'x-queue-type': 'quorum'
             },
-            durable: consumer.durable,
-            autoDelete: consumer.autoDelete,
-            deadLetterRoutingKey: `${consumer.queue}${consumer.deadLetterStrategy?.suffix ?? ".dlq"}`,
+            durable: resolved.durable,
+            autoDelete: resolved.autoDelete,
+            deadLetterRoutingKey: `${resolved.queue}${resolved.deadLetterStrategy.suffix}`,
             deadLetterExchange: "",
           }),
 
           new Promise((resolve) => {
-            if (typeof consumer.routingKey === "object") {
-              for (const rk of consumer.routingKey) {
-                channel.bindQueue(consumer.queue, consumer.exchangeName, rk);
+            if (typeof resolved.routingKey === "object") {
+              for (const rk of resolved.routingKey) {
+                channel.bindQueue(resolved.queue, resolved.exchangeName, rk);
               }
             } else {
               channel.bindQueue(
-                consumer.queue,
-                consumer.exchangeName,
-                consumer.routingKey,
+                resolved.queue,
+                resolved.exchangeName,
+                resolved.routingKey,
               );
             }
 
             resolve(true);
           }),
 
-          this.attachRetryAndDLQ(channel, consumer),
+          this.attachRetryAndDLQ(channel, resolved),
 
-          channel.consume(consumer.queue, async (message) => {
+          channel.consume(resolved.queue, async (message) => {
             await this.processConsumerMessage(
               message,
               channel,
-              consumer,
+              resolved,
               messageHandler,
             );
           }),
@@ -119,7 +129,7 @@ export class RabbitMQConsumer {
   private async processConsumerMessage(
     message: ConsumeMessage,
     channel: ConfirmChannel,
-    consumer: RabbitMQConsumerOptions,
+    consumer: ResolvedConsumerOptions,
     callback: IRabbitMQHandler,
   ): Promise<void> {
     let hasErrors = null;
@@ -155,14 +165,18 @@ export class RabbitMQConsumer {
 
   private async attachRetryAndDLQ(
     channel: ConfirmChannel,
-    consumer: RabbitMQConsumerOptions,
+    consumer: ResolvedConsumerOptions,
   ): Promise<void> {
     const waitQueue = `${consumer.queue}.retry`;
-    const deadletterQueue = `${consumer.queue}${consumer.deadLetterStrategy?.suffix ?? ".dlq"}`;
-    await channel.assertQueue(deadletterQueue, { durable: true });
+    const deadletterQueue = `${consumer.queue}${consumer.deadLetterStrategy.suffix}`;
+    await channel.assertQueue(deadletterQueue, {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'quorum',
+      },
+    });
 
-    console.log(consumer?.retryStrategy?.enabled)
-    if (consumer?.retryStrategy?.enabled == false) {
+    if (!consumer.retryStrategy.enabled) {
       return;
     }
 
@@ -170,6 +184,7 @@ export class RabbitMQConsumer {
     await channel.assertQueue(waitQueue, {
       durable: true,
       arguments: {
+        'x-queue-type': 'quorum',
         "x-dead-letter-exchange": "",
         "x-dead-letter-routing-key": consumer.queue,
       },
@@ -178,49 +193,54 @@ export class RabbitMQConsumer {
   }
 
   private async processRetry(
-    consumer: RabbitMQConsumerOptions,
+    consumer: ResolvedConsumerOptions,
     message: ConsumeMessage,
     error: Error,
   ): Promise<boolean> {
-    let isPublished = false;
-
-    if (
-      consumer.retryStrategy === undefined ||
-      consumer.retryStrategy.enabled === undefined ||
-      consumer?.retryStrategy.enabled
-    ) {
-      const retryCount = message.properties?.headers?.["x-retries-count"] ?? 0;
-      const maxRetry = consumer.retryStrategy.maxAttempts;
-
-      if (retryCount < maxRetry) {
-        const retryDelay = await consumer.retryStrategy.delay(tryParseJson(message.content.toString("utf8")), retryCount, error);
-        if (retryDelay < 0) {
-          return false;
-        }
-
-        try {
-          isPublished = await this.publishChannel.publish(
-            this.delayExchange,
-            consumer.queue,
-            stringify(tryParseJson(message.content.toString("utf8"))),
-            {
-              headers: {
-                ...message.properties.headers,
-                "x-retries-count": retryCount + 1,
-              },
-              expiration: retryDelay,
-              deliveryMode: 2, //persistent message
-              persistent: true,
-            },
-          );
-        } catch (e) {
-          this.logger.error({ message: "could_not_retry", error: e });
-          isPublished = false;
-        }
-      }
+    if (!consumer.retryStrategy.enabled) {
+      return false;
     }
 
-    return isPublished;
+    const retryCount = message.properties.headers?.["x-retries-count"] ?? 0;
+    const maxRetry = consumer.retryStrategy.maxAttempts;
+    const originalRoutingKey =
+      message.properties.headers?.["x-original-routing-key"] ??
+      message.fields.routingKey;
+
+    if (retryCount >= maxRetry) {
+      return false;
+    }
+
+    const retryDelay = await consumer.retryStrategy.delay(
+      tryParseJson(message.content.toString("utf8")),
+      retryCount,
+      error,
+    );
+
+    if (retryDelay < 0) {
+      return false;
+    }
+
+    try {
+      return await this.publishChannel.publish(
+        this.delayExchange,
+        consumer.queue,
+        stringify(tryParseJson(message.content.toString("utf8"))),
+        {
+          headers: {
+            ...message.properties.headers,
+            "x-retries-count": retryCount + 1,
+            "x-original-routing-key": originalRoutingKey,
+          },
+          expiration: retryDelay,
+          deliveryMode: 2,
+          persistent: true,
+        },
+      );
+    } catch (e) {
+      this.logger.error({ message: "could_not_retry", error: e });
+      return false;
+    }
   }
 
   private inspectConsumer(args: InspectInput): void {
@@ -235,7 +255,7 @@ export class RabbitMQConsumer {
       logLevel,
       type: "consumer",
       duration: args.elapsedTime.toString(),
-      correlationId: args?.consumeMessage?.properties?.correlationId,
+      correlationId: args.consumeMessage.properties.correlationId,
       binding,
       title: message,
       isDead: args.isDead,
@@ -260,7 +280,7 @@ export class RabbitMQConsumer {
   private async ackMessage(
     channel: ConfirmChannel,
     message: ConsumeMessage,
-    consumer: RabbitMQConsumerOptions,
+    consumer: ResolvedConsumerOptions,
     hasErrors: boolean,
     hasRetried: boolean,
   ): Promise<void> {
@@ -269,7 +289,7 @@ export class RabbitMQConsumer {
       return;
     }
 
-    if ((!hasErrors && consumer?.autoAck) || (hasErrors && hasRetried)) {
+    if ((!hasErrors && consumer.autoAck) || (hasErrors && hasRetried)) {
       channel.ack(message);
     } else if (hasErrors && !hasRetried) {
       let shouldNack = true;
@@ -277,7 +297,7 @@ export class RabbitMQConsumer {
 
       try {
         shouldNack =
-          (await consumer.deadLetterStrategy?.callback?.(
+          (await consumer.deadLetterStrategy.callback(
             message.content.toString("utf8"),
           )) ?? true;
       } catch (e) {

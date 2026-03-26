@@ -4,7 +4,7 @@ export { AMQPConnectionManager } from "./amqp-connection-manager"
 export { ConfirmChannel, ConsumeMessage } from "amqplib";
 export {
   IRabbitMQConsumer,
-  RabbitMQOptionsFactory as RabbitOptionsFactory,
+  RabbitMQOptionsFactory,
   RabbitMQConsumerParameters,
 } from "./rabbitmq.interfaces";
 export {

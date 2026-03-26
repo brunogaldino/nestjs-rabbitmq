@@ -19,7 +19,9 @@ import {
   ConnectionType,
   RabbitMQModuleOptions,
 } from "./rabbitmq.types";
-import { ModuleRef } from "@nestjs/core";
+import { DiscoveryService, MetadataScanner, ModuleRef, Reflector } from "@nestjs/core";
+import { RABBIT_HANDLER_METADATA } from "./rabbit-consumer.decorator";
+import { RabbitMQConsumerOptions } from "dist";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -51,6 +53,9 @@ export class AMQPConnectionManager
   constructor(
     @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
     private readonly moduleRef: ModuleRef,
+    private readonly discoveryService: DiscoveryService,
+    private readonly metadataScanner: MetadataScanner,
+    private readonly reflector: Reflector
   ) {
     this.rabbitModuleOptions = merge(
       this.defaultOptions,
@@ -73,6 +78,31 @@ export class AMQPConnectionManager
     await this.createConsumers();
 
     this.logger.debug("Initiating RabbitMQ consumers automatically");
+  }
+
+  private async discoverDecorators() {
+    const providers = this.discoveryService.getProviders()
+
+    for (const wrapper of providers) {
+      const { instance } = wrapper
+      if (!instance || !Object.getPrototypeOf(instance)) return;
+
+      const methods = this.metadataScanner.getAllMethodNames(instance)
+
+      for (const method of methods) {
+        const metadata = this.reflector.get(RABBIT_HANDLER_METADATA, instance[method]) as RabbitMQConsumerOptions
+
+        if (metadata) {
+          const handler = instance[method].bind(instance)
+
+          await new RabbitMQConsumer(
+            AMQPConnectionManager.consumerConn,
+            this.rabbitModuleOptions,
+            AMQPConnectionManager.publishChannelWrapper,
+          ).createConsumer(metadata, handler.bind(instance))
+        }
+      }
+    }
   }
 
   async onApplicationShutdown() {
@@ -276,4 +306,26 @@ export class AMQPConnectionManager
       })
     }
   }
+
+  // private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {
+  //   const queueNameList = [];
+  //   consumerList.map((curr) => queueNameList.push(curr.options.queue));
+  //   const dedupList = new Set(queueNameList);
+  //
+  //   if (dedupList.size != queueNameList.length) {
+  //     this.logger.error({
+  //       error: "duplicated_queues",
+  //       description: "Cannot have multiple queues on different binds",
+  //       queues: Array.from(
+  //         new Set(
+  //           queueNameList.filter(
+  //             (value, index) => queueNameList.indexOf(value) != index,
+  //           ),
+  //         ),
+  //       ),
+  //     });
+  //
+  //     process.exit(-1);
+  //   }
+  // }
 }

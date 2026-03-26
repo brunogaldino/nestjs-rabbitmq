@@ -3,6 +3,7 @@ import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { RabbitMQService } from "./rabbitmq-service";
 import { RabbitMQModuleAsyncOptions, RabbitMQModuleOptions } from "./rabbitmq.types";
 import { RabbitMQOptionsFactory } from "./rabbitmq.interfaces";
+import { RABBIT_OPTIONS } from "./rabbitmq.constants";
 
 @Global()
 @Module({})
@@ -12,7 +13,7 @@ export class RabbitMQModule {
       module: RabbitMQModule,
       global: true,
       providers: [
-        { provide: 'RABBIT_OPTIONS', useValue: options },
+        { provide: RABBIT_OPTIONS, useValue: options },
         AMQPConnectionManager,
         RabbitMQService,
       ],
@@ -41,14 +42,14 @@ export class RabbitMQModule {
   private static createAsyncOptionsProvider(options: RabbitMQModuleAsyncOptions): Provider {
     if (options.useFactory) {
       return {
-        provide: 'RABBIT_OPTIONS',
+        provide: RABBIT_OPTIONS,
         useFactory: options.useFactory,
         inject: options.inject || [],
       };
     }
 
     return {
-      provide: 'RABBIT_OPTIONS',
+      provide: RABBIT_OPTIONS,
       useFactory: async (optionsFactory: RabbitMQOptionsFactory) =>
         optionsFactory.createRabbitOptions(),
       inject: [options.useClass || options.useExisting],

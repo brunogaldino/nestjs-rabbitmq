@@ -206,6 +206,17 @@ export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'import
   useExisting?: Type<any>;
 }
 
+
+export type ResolvedConsumerOptions = RabbitMQConsumerOptions & {
+  autoAck: boolean;
+  durable: boolean;
+  prefetch: number;
+  autoDelete: boolean;
+  group: string;
+  retryStrategy: Required<NonNullable<RabbitMQConsumerOptions["retryStrategy"]>>;
+  deadLetterStrategy: Required<NonNullable<RabbitMQConsumerOptions["deadLetterStrategy"]>>;
+};
+
 // Define a type that extracts only method names from a class
 export type MethodNames<T> = {
   // eslint-disable-next-line @typescript-eslint/ban-types
@@ -217,4 +228,5 @@ export function defineRabbitConsumer<T>(
 ): RabbitMQConsumerChannel<T> {
   return config;
 }
+
 

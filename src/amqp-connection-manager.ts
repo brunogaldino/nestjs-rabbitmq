@@ -14,13 +14,14 @@ import {
 import { ConfirmChannel } from "amqplib";
 import { hostname } from "node:os";
 import { merge } from "./helper";
-import { RabbitMQConsumer } from "./rabbitmq-consumers";
+import { RabbitMQConsumer } from "./rabbitmq-consumer";
 import {
   ConnectionType,
   RabbitMQModuleOptions,
 } from "./rabbitmq.types";
 import { ModuleRef } from "@nestjs/core";
 import { LogType } from "./rabbitmq.types";
+import { RABBIT_OPTIONS } from "./rabbitmq.constants";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -33,7 +34,6 @@ export class AMQPConnectionManager
     "access-refused",
     "closed via management plugin",
   ];
-
   private defaultOptions: Partial<RabbitMQModuleOptions> = {
     extraOptions: {
       logType: "none",
@@ -42,27 +42,25 @@ export class AMQPConnectionManager
       reconnectTimeInSeconds: 5,
     },
   };
-  public rabbitModuleOptions: RabbitMQModuleOptions;
-  public publishChannelWrapper: ChannelWrapper = null;
+  private opts: RabbitMQModuleOptions;
+  public publisherWrapper: ChannelWrapper = null;
   public consumerConn: AmqpConnectionManager;
   public publisherConn: AmqpConnectionManager;
   private connectionBlockedReason: string;
 
   constructor(
-    @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
+    @Inject(RABBIT_OPTIONS) options: RabbitMQModuleOptions,
     private readonly moduleRef: ModuleRef,
     // private readonly discoveryService: DiscoveryService,
     // private readonly metadataScanner: MetadataScanner,
     // private readonly reflector: Reflector
   ) {
-    this.rabbitModuleOptions = merge(
+    this.opts = merge(
       this.defaultOptions,
       options
     );
 
-    this.rabbitModuleOptions.extraOptions.logType = process.env?.RABBITMQ_LOG_TYPE as LogType ?? this.rabbitModuleOptions.extraOptions.logType;
-    process.env.RABBITMQ_LOG_TYPE = this.rabbitModuleOptions.extraOptions.logType;
-
+    this.opts.extraOptions.logType = process.env?.RABBITMQ_LOG_TYPE as LogType ?? this.opts.extraOptions.logType;
     this.logger = new Logger(AMQPConnectionManager.name);
   }
 
@@ -72,12 +70,58 @@ export class AMQPConnectionManager
 
   async onApplicationBootstrap() {
     if (
-      this.rabbitModuleOptions.extraOptions.consumerManualLoad
+      this.opts.extraOptions.consumerManualLoad
     )
       return;
     await this.createConsumers();
 
     this.logger.debug("Initiating RabbitMQ consumers automatically");
+  }
+
+  getLogType(): LogType {
+    return this.opts.extraOptions.logType;
+  }
+
+  public async createConsumers(group?: string): Promise<void> {
+    const consumerList =
+      this.opts.consumerChannels ?? [];
+    const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
+
+    if (consumerGroup !== "rabbit-default") {
+      this.logger.log(`Initializing consumers with group: ${consumerGroup}`)
+    } else {
+      this.logger.log(`No groups associated, initializing all consumers without groups`)
+    }
+
+    for (const consumer of consumerList) {
+      consumer.group = consumer?.group ?? consumerGroup
+      if (consumer.group !== consumerGroup) {
+        continue;
+      }
+
+      if (consumer.enabled === false) {
+        this.logger.debug({
+          type: "initialization",
+          title: `[AMQP] [INIT] Consumer ${consumer.queue} is DISABLED`,
+        })
+        continue;
+      }
+
+      const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
+      const handler = instance[consumer.handler.methodName]
+
+      if (typeof handler !== 'function') {
+        throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
+      }
+
+      await this.buildConsumer().createConsumer(consumer, handler.bind(instance))
+
+      this.logger.debug({
+        type: "initialization",
+        title: `[AMQP] [INIT] Initializing consumer ${consumer.queue}`,
+        binding: { exchange: consumer.exchangeName, routingKey: consumer.routingKey, group: consumer.group },
+      })
+    }
   }
 
   // private async discoverDecorators() {
@@ -111,62 +155,40 @@ export class AMQPConnectionManager
     await this.publisherConn?.close();
   }
 
-  private async connect() {
-    const params = {
-      heartbeatIntervalInSeconds:
-        this.rabbitModuleOptions.extraOptions
-          .heartbeatIntervalInSeconds,
-      reconnectTimeInSeconds:
-        this.rabbitModuleOptions.extraOptions
-          .reconnectTimeInSeconds,
+  private async connectBroker(type: ConnectionType): Promise<AmqpConnectionManager> {
+    const conn = connect(this.opts.connectionString, this.buildConnectionOptions(type));
+
+    await new Promise<void>((resolve) => {
+      this.attachEvents(conn, type, resolve);
+    });
+
+    return conn;
+  }
+
+  private buildConnectionOptions(suffix: string) {
+    return {
+      heartbeatIntervalInSeconds: this.opts.extraOptions.heartbeatIntervalInSeconds,
+      reconnectTimeInSeconds: this.opts.extraOptions.reconnectTimeInSeconds,
       connectionOptions: {
         keepAlive: true,
         keepAliveDelay: 5000,
         servername: hostname(),
         clientProperties: {
-          connection_name: `${process.env?.npm_package_name ?? process.env.SERVICE_NAME}-${hostname()}-consumer`,
+          connection_name: `${process.env.PROJECT_NAME}-${hostname()}-${suffix}`
         },
       },
     };
+  }
 
-    await new Promise((resolve) => {
-      this.consumerConn = connect(
-        this.rabbitModuleOptions.connectionString,
-        {
-          ...params,
-          connectionOptions: {
-            clientProperties: {
-              connection_name: `${process.env?.npm_package_name ?? process.env.SERVICE_NAME}-${hostname()}-consumer`,
-            },
-          },
-        },
-      );
+  private async connect() {
+    this.consumerConn = await this.connectBroker("consumer");
+    this.publisherConn = await this.connectBroker("publisher");
 
-      this.attachEvents("consumer", resolve);
-    });
-
-    await new Promise((resolve) => {
-      this.publisherConn = connect(
-        this.rabbitModuleOptions.connectionString,
-        {
-          ...params,
-          connectionOptions: {
-            clientProperties: {
-              connection_name: `${process.env?.npm_package_name ?? process.env.SERVICE_NAME}-${hostname()}-publisher`,
-            },
-          },
-        },
-      );
-
-      this.attachEvents("publisher", resolve);
-    });
 
     await this.assertExchanges();
   }
 
-  private attachEvents(type: ConnectionType, resolve: any) {
-    const conn = this.getConnection(type);
-
+  private attachEvents(conn: AmqpConnectionManager, type: ConnectionType, resolve: any) {
     conn.on("connect", async ({ url }: { url: string }) => {
       this.logger.log(
         `Rabbit ${type} connected to ${url.replace(
@@ -208,7 +230,7 @@ export class AMQPConnectionManager
       });
 
       conn.on("unblocked", () => {
-        this.logger.error(
+        this.logger.log(
           `RabbitMQ broker connection is unblocked, last reason was: ${this.connectionBlockedReason}`,
         );
       });
@@ -225,31 +247,31 @@ export class AMQPConnectionManager
 
   private async assertExchanges(): Promise<void> {
     await new Promise((resolve) => {
-      this.publishChannelWrapper = this.getConnection(
+      this.publisherWrapper = this.getConnection(
         "publisher",
       ).createChannel({
-        name: `${process.env.npm_package_name}_publish`,
+        name: `${process.env.PROJECT_NAME}_publish`,
         confirm: true,
         publishTimeout: 60000,
       });
 
-      this.publishChannelWrapper.on("connect", () => {
+      this.publisherWrapper.on("connect", () => {
         this.logger.debug("Initiating RabbitMQ producers");
         resolve(true);
       });
 
-      this.publishChannelWrapper.on("close", () => {
+      this.publisherWrapper.on("close", () => {
         this.logger.debug("Closing RabbitMQ producer channel");
       });
 
-      this.publishChannelWrapper.on("error", (err, info) => {
+      this.publisherWrapper.on("error", (err, info) => {
         this.logger.error("Cannot open publish channel", err, info);
       });
     });
 
-    for (const publisher of this.rabbitModuleOptions
+    for (const publisher of this.opts
       ?.assertExchanges ?? []) {
-      await this.publishChannelWrapper.addSetup(
+      await this.publisherWrapper.addSetup(
         async (channel: ConfirmChannel) => {
           await channel.assertExchange(publisher.name, publisher.type, {
             durable: publisher?.options?.durable ?? true,
@@ -261,50 +283,6 @@ export class AMQPConnectionManager
   }
 
   private buildConsumer(): RabbitMQConsumer {
-    return new RabbitMQConsumer(this.consumerConn, this.rabbitModuleOptions, this.publishChannelWrapper);
-  }
-
-  public async createConsumers(group?: string): Promise<void> {
-    const consumerList =
-      this.rabbitModuleOptions.consumerChannels ?? [];
-    const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
-
-    if (consumerGroup !== "rabbit-default") {
-      this.logger.log(`Initializing consumers with group: ${consumerGroup}`)
-    } else {
-      this.logger.log(`No groups associated, initializing all consumers without groups`)
-    }
-
-    for (const consumer of consumerList) {
-      consumer.group = consumer?.group ?? consumerGroup
-      if (consumer.group !== consumerGroup) {
-        continue;
-      }
-
-      // if (!!consumer.enabled && !consumer.enabled) {
-      //   this.logger.debug({
-      //     type: "initialization",
-      //     title: `[AMQP] [INIT] Consumer ${consumer.queue} is DISABLED`,
-      //   })
-      //   continue;
-      // }
-
-
-      const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
-      const handler = instance[consumer.handler.methodName]
-
-      if (typeof handler !== 'function') {
-        throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
-      }
-
-      this.buildConsumer().createConsumer(consumer, handler.bind(instance))
-
-
-      this.logger.debug({
-        type: "initialization",
-        title: `[AMQP] [INIT] Initializing consumer ${consumer.queue}`,
-        binding: { exchange: consumer.exchangeName, routingKey: consumer.routingKey, group: consumer.group },
-      })
-    }
+    return new RabbitMQConsumer(this.consumerConn, this.opts, this.publisherWrapper);
   }
 }

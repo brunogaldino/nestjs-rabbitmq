@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import stringify from "faster-stable-stringify";
@@ -16,8 +16,8 @@ export class RabbitMQService {
    * @returns {number} 1 - Online | 0 - Offline
    */
   public checkHealth(): number {
-    return this.AMQPConn.consumerConn.isConnected() &&
-      this.AMQPConn.publisherConn.isConnected()
+    return this.AMQPConn.consumerConn?.isConnected() &&
+      this.AMQPConn.publisherConn?.isConnected()
       ? 1
       : 0;
   }
@@ -54,7 +54,7 @@ export class RabbitMQService {
     };
 
     try {
-      await this.AMQPConn.publishChannelWrapper.publish(
+      await this.AMQPConn.publisherWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
@@ -84,7 +84,7 @@ export class RabbitMQService {
     properties?: PublishOptions,
     error?: any,
   ): void {
-    if (!["publisher", "all"].includes(this.AMQPConn.rabbitModuleOptions.extraOptions.logType) && !error) return;
+    if (!["publisher", "all"].includes(this.AMQPConn.getLogType()) && !error) return;
 
     const logLevel = error ? "error" : "log";
     const logData = {

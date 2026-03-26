@@ -1,0 +1,1 @@
+export const RABBIT_OPTIONS = "RABBIT_OPTIONS";

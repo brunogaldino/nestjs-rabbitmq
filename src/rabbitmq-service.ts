@@ -1,27 +1,23 @@
 import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
-import { LogType } from "./rabbitmq.types";
 import stringify from "faster-stable-stringify";
 import { PublishOptions } from "amqp-connection-manager/dist/types/ChannelWrapper";
 import { merge } from "./helper";
 
 @Injectable()
-export class RabbitMQService implements OnApplicationBootstrap {
-  private logType: LogType;
+export class RabbitMQService {
   private logger: Logger = new Logger(RabbitMQService.name);
 
-  onApplicationBootstrap() {
-    this.logType = process.env.RABBITMQ_LOG_TYPE as LogType
-  }
+  constructor(private readonly AMQPConn: AMQPConnectionManager) { }
 
   /**
    * Check status of the main conenection to the broker.
    * @returns {number} 1 - Online | 0 - Offline
    */
   public checkHealth(): number {
-    return AMQPConnectionManager.consumerConn.isConnected() &&
-      AMQPConnectionManager.publisherConn.isConnected()
+    return this.AMQPConn.consumerConn.isConnected() &&
+      this.AMQPConn.publisherConn.isConnected()
       ? 1
       : 0;
   }
@@ -58,7 +54,7 @@ export class RabbitMQService implements OnApplicationBootstrap {
     };
 
     try {
-      await AMQPConnectionManager.publishChannelWrapper.publish(
+      await this.AMQPConn.publishChannelWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
@@ -88,7 +84,7 @@ export class RabbitMQService implements OnApplicationBootstrap {
     properties?: PublishOptions,
     error?: any,
   ): void {
-    if (!["publisher", "all"].includes(this.logType) && !error) return;
+    if (!["publisher", "all"].includes(this.AMQPConn.rabbitModuleOptions.extraOptions.logType) && !error) return;
 
     const logLevel = error ? "error" : "log";
     const logData = {

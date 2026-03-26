@@ -19,9 +19,8 @@ import {
   ConnectionType,
   RabbitMQModuleOptions,
 } from "./rabbitmq.types";
-import { DiscoveryService, MetadataScanner, ModuleRef, Reflector } from "@nestjs/core";
-import { RABBIT_HANDLER_METADATA } from "./rabbit-consumer.decorator";
-import { RabbitMQConsumerOptions } from "dist";
+import { ModuleRef } from "@nestjs/core";
+import { LogType } from "./rabbitmq.types";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -43,26 +42,27 @@ export class AMQPConnectionManager
       reconnectTimeInSeconds: 5,
     },
   };
-  private rabbitModuleOptions: RabbitMQModuleOptions;
+  public rabbitModuleOptions: RabbitMQModuleOptions;
+  public publishChannelWrapper: ChannelWrapper = null;
+  public consumerConn: AmqpConnectionManager;
+  public publisherConn: AmqpConnectionManager;
   private connectionBlockedReason: string;
-
-  public static publishChannelWrapper: ChannelWrapper = null;
-  public static consumerConn: AmqpConnectionManager;
-  public static publisherConn: AmqpConnectionManager;
 
   constructor(
     @Inject("RABBIT_OPTIONS") options: RabbitMQModuleOptions,
     private readonly moduleRef: ModuleRef,
-    private readonly discoveryService: DiscoveryService,
-    private readonly metadataScanner: MetadataScanner,
-    private readonly reflector: Reflector
+    // private readonly discoveryService: DiscoveryService,
+    // private readonly metadataScanner: MetadataScanner,
+    // private readonly reflector: Reflector
   ) {
     this.rabbitModuleOptions = merge(
       this.defaultOptions,
       options
     );
 
+    this.rabbitModuleOptions.extraOptions.logType = process.env?.RABBITMQ_LOG_TYPE as LogType ?? this.rabbitModuleOptions.extraOptions.logType;
     process.env.RABBITMQ_LOG_TYPE = this.rabbitModuleOptions.extraOptions.logType;
+
     this.logger = new Logger(AMQPConnectionManager.name);
   }
 
@@ -80,35 +80,35 @@ export class AMQPConnectionManager
     this.logger.debug("Initiating RabbitMQ consumers automatically");
   }
 
-  private async discoverDecorators() {
-    const providers = this.discoveryService.getProviders()
-
-    for (const wrapper of providers) {
-      const { instance } = wrapper
-      if (!instance || !Object.getPrototypeOf(instance)) return;
-
-      const methods = this.metadataScanner.getAllMethodNames(instance)
-
-      for (const method of methods) {
-        const metadata = this.reflector.get(RABBIT_HANDLER_METADATA, instance[method]) as RabbitMQConsumerOptions
-
-        if (metadata) {
-          const handler = instance[method].bind(instance)
-
-          await new RabbitMQConsumer(
-            AMQPConnectionManager.consumerConn,
-            this.rabbitModuleOptions,
-            AMQPConnectionManager.publishChannelWrapper,
-          ).createConsumer(metadata, handler.bind(instance))
-        }
-      }
-    }
-  }
+  // private async discoverDecorators() {
+  //   const providers = this.discoveryService.getProviders()
+  //
+  //   for (const wrapper of providers) {
+  //     const { instance } = wrapper
+  //     if (!instance || !Object.getPrototypeOf(instance)) return;
+  //
+  //     const methods = this.metadataScanner.getAllMethodNames(instance)
+  //
+  //     for (const method of methods) {
+  //       const metadata = this.reflector.get(RABBIT_HANDLER_METADATA, instance[method]) as RabbitMQConsumerOptions
+  //
+  //       if (metadata) {
+  //         const handler = instance[method].bind(instance)
+  //
+  //         await new RabbitMQConsumer(
+  //           AMQPConnectionManager.consumerConn,
+  //           this.rabbitModuleOptions,
+  //           AMQPConnectionManager.publishChannelWrapper,
+  //         ).createConsumer(metadata, handler.bind(instance))
+  //       }
+  //     }
+  //   }
+  // }
 
   async onApplicationShutdown() {
     this.logger.log("Closing RabbitMQ Connection");
-    await AMQPConnectionManager?.consumerConn?.close();
-    await AMQPConnectionManager?.publisherConn?.close();
+    await this.consumerConn?.close();
+    await this.publisherConn?.close();
   }
 
   private async connect() {
@@ -130,7 +130,7 @@ export class AMQPConnectionManager
     };
 
     await new Promise((resolve) => {
-      AMQPConnectionManager.consumerConn = connect(
+      this.consumerConn = connect(
         this.rabbitModuleOptions.connectionString,
         {
           ...params,
@@ -146,7 +146,7 @@ export class AMQPConnectionManager
     });
 
     await new Promise((resolve) => {
-      AMQPConnectionManager.publisherConn = connect(
+      this.publisherConn = connect(
         this.rabbitModuleOptions.connectionString,
         {
           ...params,
@@ -217,15 +217,15 @@ export class AMQPConnectionManager
 
   private getConnection(type: ConnectionType) {
     if (type === "publisher") {
-      return AMQPConnectionManager.publisherConn;
+      return this.publisherConn;
     } else {
-      return AMQPConnectionManager.consumerConn;
+      return this.consumerConn;
     }
   }
 
   private async assertExchanges(): Promise<void> {
     await new Promise((resolve) => {
-      AMQPConnectionManager.publishChannelWrapper = this.getConnection(
+      this.publishChannelWrapper = this.getConnection(
         "publisher",
       ).createChannel({
         name: `${process.env.npm_package_name}_publish`,
@@ -233,23 +233,23 @@ export class AMQPConnectionManager
         publishTimeout: 60000,
       });
 
-      AMQPConnectionManager.publishChannelWrapper.on("connect", () => {
+      this.publishChannelWrapper.on("connect", () => {
         this.logger.debug("Initiating RabbitMQ producers");
         resolve(true);
       });
 
-      AMQPConnectionManager.publishChannelWrapper.on("close", () => {
+      this.publishChannelWrapper.on("close", () => {
         this.logger.debug("Closing RabbitMQ producer channel");
       });
 
-      AMQPConnectionManager.publishChannelWrapper.on("error", (err, info) => {
+      this.publishChannelWrapper.on("error", (err, info) => {
         this.logger.error("Cannot open publish channel", err, info);
       });
     });
 
     for (const publisher of this.rabbitModuleOptions
       ?.assertExchanges ?? []) {
-      await AMQPConnectionManager.publishChannelWrapper.addSetup(
+      await this.publishChannelWrapper.addSetup(
         async (channel: ConfirmChannel) => {
           await channel.assertExchange(publisher.name, publisher.type, {
             durable: publisher?.options?.durable ?? true,
@@ -258,6 +258,10 @@ export class AMQPConnectionManager
         },
       );
     }
+  }
+
+  private buildConsumer(): RabbitMQConsumer {
+    return new RabbitMQConsumer(this.consumerConn, this.rabbitModuleOptions, this.publishChannelWrapper);
   }
 
   public async createConsumers(group?: string): Promise<void> {
@@ -293,11 +297,8 @@ export class AMQPConnectionManager
         throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
       }
 
-      await new RabbitMQConsumer(
-        AMQPConnectionManager.consumerConn,
-        this.rabbitModuleOptions,
-        AMQPConnectionManager.publishChannelWrapper,
-      ).createConsumer(consumer, handler.bind(instance))
+      this.buildConsumer().createConsumer(consumer, handler.bind(instance))
+
 
       this.logger.debug({
         type: "initialization",
@@ -306,26 +307,4 @@ export class AMQPConnectionManager
       })
     }
   }
-
-  // private checkDuplicatedQueues(consumerList: RabbitMQConsumerChannel[]): void {
-  //   const queueNameList = [];
-  //   consumerList.map((curr) => queueNameList.push(curr.options.queue));
-  //   const dedupList = new Set(queueNameList);
-  //
-  //   if (dedupList.size != queueNameList.length) {
-  //     this.logger.error({
-  //       error: "duplicated_queues",
-  //       description: "Cannot have multiple queues on different binds",
-  //       queues: Array.from(
-  //         new Set(
-  //           queueNameList.filter(
-  //             (value, index) => queueNameList.indexOf(value) != index,
-  //           ),
-  //         ),
-  //       ),
-  //     });
-  //
-  //     process.exit(-1);
-  //   }
-  // }
 }

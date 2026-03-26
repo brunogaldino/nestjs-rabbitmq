@@ -2,7 +2,6 @@ import { Logger } from "@nestjs/common";
 import { AmqpConnectionManager, ChannelWrapper } from "amqp-connection-manager";
 import { ConfirmChannel, ConsumeMessage } from "amqplib";
 import stringify from "faster-stable-stringify";
-import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { merge, tryParseJson } from "./helper";
 import { IRabbitMQHandler } from "./rabbitmq.interfaces";
 import {
@@ -64,10 +63,7 @@ export class RabbitMQConsumer {
     this.options = options;
     this.delayExchange = `${this.options.delayExchangeName}.delay`;
     this.publishChannel = publishChannelWrapper;
-
-    this.logType =
-      (process.env.RABBITMQ_LOG_TYPE as LogType) ??
-      this.options.extraOptions.logType;
+    this.logType = this.options.extraOptions.logType;
 
     this.logger = new Logger(RabbitMQConsumer.name);
   }
@@ -284,7 +280,7 @@ export class RabbitMQConsumer {
     hasErrors: boolean,
     hasRetried: boolean,
   ): Promise<void> {
-    if (!AMQPConnectionManager.consumerConn.isConnected()) {
+    if (!this.connection.isConnected()) {
       this.logger.error("Could not acknowledge message, Connection is offline");
       return;
     }

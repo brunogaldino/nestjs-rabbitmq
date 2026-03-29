@@ -43,11 +43,9 @@ export class RabbitMQService {
     const defaultHeaders = {
       correlationId: randomUUID(),
       headers: {
-        "x-application-headers": {
-          "original-exchange": exchangeName,
-          "original-routing-key": routingKey,
-          "published-at": new Date().toISOString(),
-        },
+        "x-original-exchange": exchangeName,
+        "x-original-routing-key": routingKey,
+        "x-published-at": new Date().toISOString(),
       },
       persistent: true,
       deliveryMode: 2,

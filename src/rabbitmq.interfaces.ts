@@ -1,15 +1,16 @@
 import { ChannelWrapper } from "amqp-connection-manager";
 import { ConfirmChannel, ConsumeMessage } from "amqplib";
-import { RabbitMQModuleOptions } from "./rabbitmq.types";
+import { ModuleOptions } from "./rabbitmq.types";
 
-export type RabbitMQConsumerParameters = {
+export type MessageParams = {
   message: ConsumeMessage;
   channel: ConfirmChannel;
   queue: string;
+  originalRoutingKey?: string;
 };
 
 export interface IRabbitMQHandler<T = any> {
-  (content: T, parameters?: RabbitMQConsumerParameters): Promise<void>;
+  (content: T, parameters?: MessageParams): Promise<void>;
 }
 
 export interface IRabbitDeadletterCallback<T = any> {
@@ -21,7 +22,7 @@ export interface IDelayProgression {
 }
 
 export interface RabbitMQOptionsFactory {
-  createRabbitOptions(): RabbitMQModuleOptions;
+  createRabbitOptions(): ModuleOptions;
 }
 
 export interface RabbitMQChannel {
@@ -29,9 +30,9 @@ export interface RabbitMQChannel {
   wrapper: ChannelWrapper;
 }
 
-export interface IRabbitMQConsumer<T = any> {
+export interface ConsumerHandler<T = any> {
   messageHandler(
     content: T,
-    parameters?: RabbitMQConsumerParameters,
+    parameters?: MessageParams,
   ): Promise<void>;
 }

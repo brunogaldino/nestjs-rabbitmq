@@ -22,13 +22,13 @@ export class RetryHandler {
       return false;
     }
 
-    const retryCount = message.properties.headers?.["x-retries-count"] ?? 0;
+    const retryCount = message.properties.headers?.["x-retries-count"] ?? 1;
     const maxRetry = consumer.retryStrategy.maxAttempts;
     const originalRoutingKey =
       message.properties.headers?.["x-original-routing-key"] ??
       message.fields.routingKey;
 
-    if (retryCount >= maxRetry) {
+    if (retryCount > maxRetry) {
       return false;
     }
 

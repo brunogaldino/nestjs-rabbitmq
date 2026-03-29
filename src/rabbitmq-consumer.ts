@@ -5,8 +5,8 @@ import { merge, tryParseJson } from "./helper";
 import { IRabbitMQHandler } from "./rabbitmq.interfaces";
 import {
   LogType,
-  RabbitMQConsumerOptions,
-  RabbitMQModuleOptions,
+  ConsumerOptions,
+  ModuleOptions,
   ResolvedConsumerOptions,
 } from "./rabbitmq.types";
 import { RetryHandler } from "./rabbitmq-retry-handler";
@@ -27,7 +27,7 @@ export class RabbitMQConsumer {
   private readonly connection: AmqpConnectionManager;
   private readonly delayExchange: string;
   private readonly logType: LogType;
-  private defaultConsumerOptions: Partial<RabbitMQConsumerOptions> = {
+  private defaultConsumerOptions: Partial<ConsumerOptions> = {
     autoAck: true,
     durable: true,
     prefetch: 10,
@@ -47,7 +47,7 @@ export class RabbitMQConsumer {
 
   constructor(
     connection: AmqpConnectionManager,
-    options: RabbitMQModuleOptions,
+    options: ModuleOptions,
     publishChannelWrapper: ChannelWrapper,
   ) {
     this.connection = connection;
@@ -57,7 +57,7 @@ export class RabbitMQConsumer {
   }
 
   public async createConsumer(
-    consumer: RabbitMQConsumerOptions,
+    consumer: ConsumerOptions,
     handler: IRabbitMQHandler,
   ): Promise<ChannelWrapper> {
     const resolved = merge(this.defaultConsumerOptions, consumer) as ResolvedConsumerOptions;
@@ -148,6 +148,7 @@ export class RabbitMQConsumer {
         message,
         channel,
         queue: consumer.queue,
+        originalRoutingKey: message.properties.headers["x-original-routing-key"] ?? message.fields.routingKey ?? null
       });
     } catch (e) {
       hasErrors = e;

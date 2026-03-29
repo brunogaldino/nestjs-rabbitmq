@@ -1,21 +1,25 @@
 import { DynamicModule, Global, Module, Provider } from "@nestjs/common";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { RabbitMQService } from "./rabbitmq-service";
-import { RabbitMQModuleAsyncOptions, RabbitMQModuleOptions } from "./rabbitmq.types";
+import { RabbitMQModuleAsyncOptions, ModuleOptions } from "./rabbitmq.types";
 import { RabbitMQOptionsFactory } from "./rabbitmq.interfaces";
 import { RABBIT_OPTIONS } from "./rabbitmq.constants";
+import { DiscoveryModule } from "@nestjs/core";
+import { ClassDiscovery } from "./class-discovery";
 
 @Global()
 @Module({})
 export class RabbitMQModule {
-  static forRoot(options: RabbitMQModuleOptions): DynamicModule {
+  static forRoot(options: ModuleOptions): DynamicModule {
     return {
       module: RabbitMQModule,
       global: true,
+      imports: [DiscoveryModule],
       providers: [
         { provide: RABBIT_OPTIONS, useValue: options },
         AMQPConnectionManager,
         RabbitMQService,
+        ClassDiscovery,
       ],
       exports: [RabbitMQService],
     };
@@ -28,12 +32,13 @@ export class RabbitMQModule {
 
     return {
       module: RabbitMQModule,
-      imports: options.imports || [],
+      imports: [DiscoveryModule, ...options?.imports ?? []],
       providers: [
         ...injectProviders,
         ...this.createAsyncProviders(options),
         AMQPConnectionManager,
-        RabbitMQService
+        RabbitMQService,
+        ClassDiscovery,
       ],
       exports: [RabbitMQService],
     };

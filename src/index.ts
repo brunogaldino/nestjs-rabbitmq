@@ -1,18 +1,20 @@
 export { RabbitMQModule } from "./rabbitmq.module";
 export { RabbitMQService } from "./rabbitmq-service";
-export { AMQPConnectionManager } from "./amqp-connection-manager";
 export { RABBIT_OPTIONS } from "./rabbitmq.constants";
 export { ConfirmChannel, ConsumeMessage } from "amqplib";
 export {
-  IRabbitMQConsumer,
+  ConsumerHandler,
   RabbitMQOptionsFactory,
-  RabbitMQConsumerParameters,
+  MessageParams
 } from "./rabbitmq.interfaces";
 export {
-  RabbitMQExchangeTypes,
-  RabbitMQModuleOptions,
-  RabbitMQAssertExchange,
-  RabbitMQConsumerOptions,
-  RabbitMQConsumerChannel,
+  Exchange,
+  ExchangeType,
+  ModuleOptions,
+  ConsumerOptions,
+  ConsumerChannel,
   defineRabbitConsumer,
 } from "./rabbitmq.types";
+
+export { RabbitConsumer, RABBIT_HANDLER_METADATA } from "./rabbit-consumer.decorator";
+

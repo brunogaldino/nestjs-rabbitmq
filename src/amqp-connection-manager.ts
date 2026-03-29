@@ -17,11 +17,11 @@ import { merge } from "./helper";
 import { RabbitMQConsumer } from "./rabbitmq-consumer";
 import {
   ConnectionType,
-  RabbitMQModuleOptions,
+  ModuleOptions,
 } from "./rabbitmq.types";
-import { ModuleRef } from "@nestjs/core";
 import { LogType } from "./rabbitmq.types";
 import { RABBIT_OPTIONS } from "./rabbitmq.constants";
+import { ClassDiscovery } from "./class-discovery";
 
 @Injectable()
 export class AMQPConnectionManager
@@ -34,7 +34,7 @@ export class AMQPConnectionManager
     "access-refused",
     "closed via management plugin",
   ];
-  private defaultOptions: Partial<RabbitMQModuleOptions> = {
+  private defaultOptions: Partial<ModuleOptions> = {
     extraOptions: {
       logType: "none",
       consumerManualLoad: false,
@@ -42,18 +42,16 @@ export class AMQPConnectionManager
       reconnectTimeInSeconds: 5,
     },
   };
-  private opts: RabbitMQModuleOptions;
+  private opts: ModuleOptions;
   public publisherWrapper: ChannelWrapper = null;
   public consumerConn: AmqpConnectionManager;
   public publisherConn: AmqpConnectionManager;
   private connectionBlockedReason: string;
+  public consumerInitialized: boolean = false;
 
   constructor(
-    @Inject(RABBIT_OPTIONS) options: RabbitMQModuleOptions,
-    private readonly moduleRef: ModuleRef,
-    // private readonly discoveryService: DiscoveryService,
-    // private readonly metadataScanner: MetadataScanner,
-    // private readonly reflector: Reflector
+    @Inject(RABBIT_OPTIONS) options: ModuleOptions,
+    private readonly classDiscovery: ClassDiscovery,
   ) {
     this.opts = merge(
       this.defaultOptions,
@@ -82,7 +80,10 @@ export class AMQPConnectionManager
     return this.opts.extraOptions.logType;
   }
 
-  public async createConsumers(group?: string): Promise<void> {
+  async createConsumers(group?: string): Promise<void> {
+    if (this.consumerInitialized)
+      throw new Error("RabbitMQModule: Consumers are already initialized.")
+
     const consumerList =
       this.opts.consumerChannels ?? [];
     const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
@@ -93,61 +94,39 @@ export class AMQPConnectionManager
       this.logger.log(`No groups associated, initializing all consumers without groups`)
     }
 
-    for (const consumer of consumerList) {
-      consumer.group = consumer?.group ?? consumerGroup
-      if (consumer.group !== consumerGroup) {
-        continue;
+    const configConsumers = this.classDiscovery.getConfigConsumers(consumerList);
+    const decoratorConsumers = this.classDiscovery.discoverDecoratedConsumers()
+
+    const allConsumers = [...configConsumers, ...decoratorConsumers]
+    const dupQueues = new Set<string>();
+    for (const c of allConsumers) {
+      if (dupQueues.has(c.queue)) {
+        throw new Error(`RabbitMQModule: Duplicate queue name "${c.queue}" found across config and decorator consumers.`);
       }
+
+      dupQueues.add(c.queue);
+    }
+
+    for (const consumer of allConsumers) {
+      consumer.group = consumer.group ?? consumerGroup;
+      if (consumer.group !== consumerGroup) continue;
 
       if (consumer.enabled === false) {
-        this.logger.debug({
-          type: "initialization",
-          title: `[AMQP] [INIT] Consumer ${consumer.queue} is DISABLED`,
-        })
+        this.logger.debug({ type: "initialization", title: `[AMQP] [INIT] Consumer ${consumer.queue} is DISABLED` });
         continue;
       }
 
-      const instance = this.moduleRef.get(consumer.handler.provider, { strict: false });
-      const handler = instance[consumer.handler.methodName]
-
-      if (typeof handler !== 'function') {
-        throw new Error(`RabbitMQModule: Method ${consumer.handler.methodName} not found on ${instance.constructor.name}`);
-      }
-
-      await this.buildConsumer().createConsumer(consumer, handler.bind(instance))
+      await this.buildConsumer().createConsumer(consumer, consumer.handler)
 
       this.logger.debug({
         type: "initialization",
         title: `[AMQP] [INIT] Initializing consumer ${consumer.queue}`,
         binding: { exchange: consumer.exchangeName, routingKey: consumer.routingKey, group: consumer.group },
-      })
+      });
     }
-  }
 
-  // private async discoverDecorators() {
-  //   const providers = this.discoveryService.getProviders()
-  //
-  //   for (const wrapper of providers) {
-  //     const { instance } = wrapper
-  //     if (!instance || !Object.getPrototypeOf(instance)) return;
-  //
-  //     const methods = this.metadataScanner.getAllMethodNames(instance)
-  //
-  //     for (const method of methods) {
-  //       const metadata = this.reflector.get(RABBIT_HANDLER_METADATA, instance[method]) as RabbitMQConsumerOptions
-  //
-  //       if (metadata) {
-  //         const handler = instance[method].bind(instance)
-  //
-  //         await new RabbitMQConsumer(
-  //           AMQPConnectionManager.consumerConn,
-  //           this.rabbitModuleOptions,
-  //           AMQPConnectionManager.publishChannelWrapper,
-  //         ).createConsumer(metadata, handler.bind(instance))
-  //       }
-  //     }
-  //   }
-  // }
+    this.consumerInitialized = true;
+  }
 
   async onApplicationShutdown() {
     this.logger.log("Closing RabbitMQ Connection");

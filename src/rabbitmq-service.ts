@@ -76,6 +76,10 @@ export class RabbitMQService {
     return !hasErrors;
   }
 
+  async begin(group?: string) {
+    this.AMQPConn.createConsumers(group)
+  }
+
   private inspectPublisher(
     exchange: string,
     routingKey: string,
@@ -103,4 +107,5 @@ export class RabbitMQService {
     if (error) logData["error"] = error;
     this.logger[logLevel](logData);
   }
+
 }

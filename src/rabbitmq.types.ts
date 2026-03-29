@@ -2,14 +2,15 @@ import { ModuleMetadata, Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
+  IRabbitMQHandler,
   RabbitMQOptionsFactory,
 } from "./rabbitmq.interfaces";
 
-export type RabbitMQExchangeTypes = "direct" | "topic" | "fanout" | "headers";
+export type ExchangeType = "direct" | "topic" | "fanout" | "headers";
 export type LogType = "all" | "consumer" | "publisher" | "none";
 export type ConnectionType = "consumer" | "publisher";
 
-export type RabbitMQConsumerOptions = {
+export type ConsumerOptions = {
   /** If consumer should be enabled or not
    * @default true
    */
@@ -97,13 +98,13 @@ export type RabbitMQConsumerOptions = {
   group?: string;
 };
 
-export type RabbitMQAssertExchange = {
+export type Exchange = {
   /** Name of the exchange to be asserted*/
   name: string;
 
   /** Assert the type of the exchange.
    * @see {@link https://www.rabbitmq.com/tutorials/amqp-concepts} for more information about exchange types */
-  type: RabbitMQExchangeTypes;
+  type: ExchangeType;
 
   options?: {
     /** If messages that passes through this exchange should be stored on a persistent disk
@@ -118,14 +119,18 @@ export type RabbitMQAssertExchange = {
   };
 };
 
-export type RabbitMQConsumerChannel<T = any> = RabbitMQConsumerOptions & {
+export type ConsumerChannel<T = any> = ConsumerOptions & {
   handler: {
     provider: Type<T>;
     methodName: MethodNames<T>;
   }
 };
 
-export type RabbitMQModuleOptions = {
+export type RabbitMQConsumerResolved = ConsumerOptions & {
+  handler: IRabbitMQHandler,
+}
+
+export type ModuleOptions = {
   /** Connection URI for the RabbitMQ server
    * @example amqp://{user}:{password}@{url}/{vhost}
    * */
@@ -145,10 +150,10 @@ export type RabbitMQModuleOptions = {
 
   /** All exchanges declared here will be validated before attaching the consumers
    * If any of the exchanegs declared can not be asserted an error will be thrown */
-  assertExchanges?: Array<RabbitMQAssertExchange>;
+  assertExchanges?: Array<Exchange>;
 
   /** Array of consumers that will be attached to the application*/
-  consumerChannels?: Array<RabbitMQConsumerChannel>;
+  consumerChannels?: Array<ConsumerChannel>;
 
   extraOptions?: {
     /** When **TRUE** the SDK will not initiate the consumers automatically during the _OnModuleInit_
@@ -184,7 +189,7 @@ export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'import
   /**
    * Factory function that returns the configuration object
    */
-  useFactory?: (...args: any[]) => Promise<RabbitMQModuleOptions> | RabbitMQModuleOptions;
+  useFactory?: (...args: any[]) => Promise<ModuleOptions> | ModuleOptions;
 
   /**
    * Optional list of providers to be injected into the factory function.
@@ -206,15 +211,14 @@ export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'import
   useExisting?: Type<any>;
 }
 
-
-export type ResolvedConsumerOptions = RabbitMQConsumerOptions & {
+export type ResolvedConsumerOptions = ConsumerOptions & {
   autoAck: boolean;
   durable: boolean;
   prefetch: number;
   autoDelete: boolean;
   group: string;
-  retryStrategy: Required<NonNullable<RabbitMQConsumerOptions["retryStrategy"]>>;
-  deadLetterStrategy: Required<NonNullable<RabbitMQConsumerOptions["deadLetterStrategy"]>>;
+  retryStrategy: Required<NonNullable<ConsumerOptions["retryStrategy"]>>;
+  deadLetterStrategy: Required<NonNullable<ConsumerOptions["deadLetterStrategy"]>>;
 };
 
 // Define a type that extracts only method names from a class
@@ -224,8 +228,8 @@ export type MethodNames<T> = {
 }[keyof T] & string;
 
 export function defineRabbitConsumer<T>(
-  config: RabbitMQConsumerChannel<T>
-): RabbitMQConsumerChannel<T> {
+  config: ConsumerChannel<T>
+): ConsumerChannel<T> {
   return config;
 }
 

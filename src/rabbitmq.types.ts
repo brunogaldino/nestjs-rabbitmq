@@ -1,20 +1,34 @@
-import { ModuleMetadata, Type } from "@nestjs/common";
+import { Type } from "@nestjs/common";
 import {
   IDelayProgression,
   IRabbitDeadletterCallback,
   IRabbitMQHandler,
-  RabbitMQOptionsFactory,
 } from "./rabbitmq.interfaces";
 
 export type ExchangeType = "direct" | "topic" | "fanout" | "headers";
 export type LogType = "all" | "consumer" | "publisher" | "none";
 export type ConnectionType = "consumer" | "publisher";
 
+export type ConnectionConfig = {
+  name: string;
+  connectionString: string | string[];
+  delayExchangeName: string;
+  assertExchanges?: Array<Exchange>;
+  consumerChannels?: Array<ConsumerChannel>;
+};
+
 export type ConsumerOptions = {
   /** If consumer should be enabled or not
    * @default true
    */
   enabled?: boolean;
+
+  /** Used for multi-vhost connections.
+   * When only one connection is used, there is no need to give this attribute 
+   * otherwise, pass the name of the connection this consumer should attach
+   * @default "default"
+  */
+  connection?: string;
 
   /** Name of the Queue */
   queue: string;
@@ -134,19 +148,12 @@ export type ModuleOptions = {
   /** Connection URI for the RabbitMQ server
    * @example amqp://{user}:{password}@{url}/{vhost}
    * */
-  connectionString: string | string[];
+  connectionString?: string | string[];
 
   /** The name of the centralized retry exchange that will be used
    * a `.delay` will be added to the given name
    * Will be asserted if it does not exists*/
-  delayExchangeName: string;
-
-  // /** When **TRUE**, the connection will be made synchronously during the `OnModuleInit` lifecycle
-  //  * and will only return after the connection is sucessfully made
-  //  * When **FALSE**, the connection is made asynchronously and will release the lifecycle event as fast as possible.
-  //  @ deprecated
-  //  * Default: true */
-  // waitConnection?: boolean;
+  delayExchangeName?: string;
 
   /** All exchanges declared here will be validated before attaching the consumers
    * If any of the exchanegs declared can not be asserted an error will be thrown */
@@ -162,7 +169,7 @@ export type ModuleOptions = {
      * @example
      * ```javascript
      * const rabbitService: RabbitMQService = app.get(RabbitMQService);
-     * await rabbitService.beginConsumers();
+     * await rabbitService.startConsumers();
      * ``` */
     consumerManualLoad?: boolean;
 
@@ -183,33 +190,13 @@ export type ModuleOptions = {
      * @default 5 seconds */
     reconnectTimeInSeconds?: number;
   };
+
+  /** Used for multi-vhost connections. If your application needs to publish and consume from
+   * different rabbit brokers or different instances, you can drop the passage of options and instead 
+   * use the 
+   */
+  connections?: ConnectionConfig[];
 };
-
-export interface RabbitMQModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
-  /**
-   * Factory function that returns the configuration object
-   */
-  useFactory?: (...args: any[]) => Promise<ModuleOptions> | ModuleOptions;
-
-  /**
-   * Optional list of providers to be injected into the factory function.
-   */
-  inject?: any[];
-
-  imports?: any[];
-
-  providers?: any[];
-
-  /**
-   * Optional class that implements the RabbitMQOptionsFactory interface
-   */
-  useClass?: Type<RabbitMQOptionsFactory>;
-
-  /**
-   * Optional existing provider to be reused
-   */
-  useExisting?: Type<any>;
-}
 
 export type ResolvedConsumerOptions = ConsumerOptions & {
   autoAck: boolean;
@@ -221,9 +208,8 @@ export type ResolvedConsumerOptions = ConsumerOptions & {
   deadLetterStrategy: Required<NonNullable<ConsumerOptions["deadLetterStrategy"]>>;
 };
 
-// Define a type that extracts only method names from a class
+// eslint-disable-next-line @typescript-eslint/ban-types
 export type MethodNames<T> = {
-  // eslint-disable-next-line @typescript-eslint/ban-types
   [K in keyof T]: T[K] extends Function ? K : never;
 }[keyof T] & string;
 
@@ -232,5 +218,3 @@ export function defineRabbitConsumer<T>(
 ): ConsumerChannel<T> {
   return config;
 }
-
-

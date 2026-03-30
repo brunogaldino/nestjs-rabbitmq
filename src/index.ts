@@ -11,6 +11,7 @@ export {
   Exchange,
   ExchangeType,
   ModuleOptions,
+  ConnectionConfig,
   ConsumerOptions,
   ConsumerChannel,
   defineRabbitConsumer,

@@ -1,8 +1,8 @@
 import { DynamicModule, Global, Module, Provider } from "@nestjs/common";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import { RabbitMQService } from "./rabbitmq-service";
-import { RabbitMQModuleAsyncOptions, ModuleOptions } from "./rabbitmq.types";
-import { RabbitMQOptionsFactory } from "./rabbitmq.interfaces";
+import { ModuleOptions } from "./rabbitmq.types";
+import { RabbitMQOptionsFactory, ModuleAsyncOptions } from "./rabbitmq.interfaces";
 import { RABBIT_OPTIONS } from "./rabbitmq.constants";
 import { DiscoveryModule } from "@nestjs/core";
 import { ClassDiscovery } from "./class-discovery";
@@ -25,7 +25,7 @@ export class RabbitMQModule {
     };
   }
 
-  static forRootAsync(options: RabbitMQModuleAsyncOptions): DynamicModule {
+  static forRootAsync(options: ModuleAsyncOptions): DynamicModule {
     const injectProviders = (options.inject || []).filter(
       (item) => typeof item === 'function'
     ) as Provider[];
@@ -44,7 +44,7 @@ export class RabbitMQModule {
     };
   }
 
-  private static createAsyncOptionsProvider(options: RabbitMQModuleAsyncOptions): Provider {
+  private static createAsyncOptionsProvider(options: ModuleAsyncOptions): Provider {
     if (options.useFactory) {
       return {
         provide: RABBIT_OPTIONS,
@@ -61,7 +61,7 @@ export class RabbitMQModule {
     };
   }
 
-  private static createAsyncProviders(options: RabbitMQModuleAsyncOptions): Provider[] {
+  private static createAsyncProviders(options: ModuleAsyncOptions): Provider[] {
     if (options.useFactory || options.useExisting) {
       return [this.createAsyncOptionsProvider(options)];
     }

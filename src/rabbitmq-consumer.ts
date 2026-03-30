@@ -6,7 +6,6 @@ import { IRabbitMQHandler } from "./rabbitmq.interfaces";
 import {
   LogType,
   ConsumerOptions,
-  ModuleOptions,
   ResolvedConsumerOptions,
 } from "./rabbitmq.types";
 import { RetryHandler } from "./rabbitmq-retry-handler";
@@ -47,12 +46,13 @@ export class RabbitMQConsumer {
 
   constructor(
     connection: AmqpConnectionManager,
-    options: ModuleOptions,
+    delayExchangeName: string,
+    logType: LogType,
     publishChannelWrapper: ChannelWrapper,
   ) {
     this.connection = connection;
-    this.delayExchange = `${options.delayExchangeName}.delay`;
-    this.logType = options.extraOptions.logType;
+    this.delayExchange = `${delayExchangeName}.delay`;
+    this.logType = logType;
     this.retryHandler = new RetryHandler(publishChannelWrapper, this.delayExchange)
   }
 

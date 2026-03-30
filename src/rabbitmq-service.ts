@@ -12,14 +12,23 @@ export class RabbitMQService {
   constructor(private readonly AMQPConn: AMQPConnectionManager) { }
 
   /**
-   * Check status of the main conenection to the broker.
+   * Check status of broker connections.
+   * When called without arguments, checks all connections.
+   * When called with a connection name, checks only that connection.
    * @returns {number} 1 - Online | 0 - Offline
    */
-  public checkHealth(): number {
-    return this.AMQPConn.consumerConn?.isConnected() &&
-      this.AMQPConn.publisherConn?.isConnected()
-      ? 1
-      : 0;
+  public checkHealth(connectionName?: string): number {
+    if (connectionName) {
+      const holder = this.AMQPConn.getConnectionHolder(connectionName);
+      return holder.consumerConn?.isConnected() && holder.publisherConn?.isConnected() ? 1 : 0;
+    }
+
+    for (const holder of this.AMQPConn.getAllConnections()) {
+      if (!holder.consumerConn?.isConnected() || !holder.publisherConn?.isConnected()) {
+        return 0;
+      }
+    }
+    return 1;
   }
 
   /**
@@ -36,7 +45,7 @@ export class RabbitMQService {
     exchangeName: string,
     routingKey: string,
     message: T,
-    options?: PublishOptions,
+    options?: PublishOptions & { connection?: string },
   ): Promise<boolean> {
     let hasErrors = null;
     const start = process.hrtime.bigint();
@@ -52,11 +61,15 @@ export class RabbitMQService {
     };
 
     try {
-      await this.AMQPConn.publisherWrapper.publish(
+      const connectionName = options?.connection ?? "default";
+      const holder = this.AMQPConn.getConnectionHolder(connectionName);
+      const { connection: _conn, ...publishOptions } = options ?? {};
+
+      await holder.publisherWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
-        merge(defaultHeaders, options),
+        merge(defaultHeaders, publishOptions),
       );
     } catch (e) {
       hasErrors = e;
@@ -74,8 +87,8 @@ export class RabbitMQService {
     return !hasErrors;
   }
 
-  async begin(group?: string) {
-    this.AMQPConn.createConsumers(group)
+  async startConsumers(group?: string) {
+    await this.AMQPConn.createConsumers(group)
   }
 
   private inspectPublisher(

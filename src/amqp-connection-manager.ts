@@ -6,34 +6,22 @@ import {
   OnApplicationShutdown,
   OnModuleInit,
 } from "@nestjs/common";
-import {
-  AmqpConnectionManager,
-  ChannelWrapper,
-  connect,
-} from "amqp-connection-manager";
-import { ConfirmChannel } from "amqplib";
-import { hostname } from "node:os";
 import { merge } from "./helper";
 import { RabbitMQConsumer } from "./rabbitmq-consumer";
 import {
-  ConnectionType,
+  ConnectionConfig,
+  LogType,
   ModuleOptions,
+  RabbitMQConsumerResolved,
 } from "./rabbitmq.types";
-import { LogType } from "./rabbitmq.types";
 import { RABBIT_OPTIONS } from "./rabbitmq.constants";
 import { ClassDiscovery } from "./class-discovery";
+import { ConnectionFactory, ConnectionHolder } from "./connection-factory";
 
 @Injectable()
 export class AMQPConnectionManager
   implements OnModuleInit, OnApplicationBootstrap, OnApplicationShutdown {
-  private readonly logger: Console | Logger;
-  private rabbitTerminalErrors: string[] = [
-    "channel-error",
-    "precondition-failed",
-    "not-allowed",
-    "access-refused",
-    "closed via management plugin",
-  ];
+  private readonly logger: Logger;
   private defaultOptions: Partial<ModuleOptions> = {
     extraOptions: {
       logType: "none",
@@ -43,10 +31,8 @@ export class AMQPConnectionManager
     },
   };
   private opts: ModuleOptions;
-  public publisherWrapper: ChannelWrapper = null;
-  public consumerConn: AmqpConnectionManager;
-  public publisherConn: AmqpConnectionManager;
-  private connectionBlockedReason: string;
+  private connections: Map<string, ConnectionHolder> = new Map();
+  private connectionFactory: ConnectionFactory;
   public consumerInitialized: boolean = false;
 
   constructor(
@@ -60,6 +46,7 @@ export class AMQPConnectionManager
 
     this.opts.extraOptions.logType = process.env?.RABBITMQ_LOG_TYPE as LogType ?? this.opts.extraOptions.logType;
     this.logger = new Logger(AMQPConnectionManager.name);
+    this.connectionFactory = new ConnectionFactory(this.opts);
   }
 
   async onModuleInit() {
@@ -67,12 +54,8 @@ export class AMQPConnectionManager
   }
 
   async onApplicationBootstrap() {
-    if (
-      this.opts.extraOptions.consumerManualLoad
-    )
-      return;
+    if (this.opts.extraOptions.consumerManualLoad) return;
     await this.createConsumers();
-
     this.logger.debug("Initiating RabbitMQ consumers automatically");
   }
 
@@ -80,12 +63,24 @@ export class AMQPConnectionManager
     return this.opts.extraOptions.logType;
   }
 
+  public getConnectionHolder(name: string = "default"): ConnectionHolder {
+    const holder = this.connections.get(name);
+    if (!holder) {
+      throw new Error(
+        `RabbitMQModule: Connection "${name}" not found. Available: ${[...this.connections.keys()].join(", ")}`
+      );
+    }
+    return holder;
+  }
+
+  public getAllConnections(): ConnectionHolder[] {
+    return [...this.connections.values()];
+  }
+
   async createConsumers(group?: string): Promise<void> {
     if (this.consumerInitialized)
       throw new Error("RabbitMQModule: Consumers are already initialized.")
 
-    const consumerList =
-      this.opts.consumerChannels ?? [];
     const consumerGroup = process.env?.RMQ_CONSUMER_GROUP?.toLocaleLowerCase()?.trim() ?? group ?? "rabbit-default"
 
     if (consumerGroup !== "rabbit-default") {
@@ -94,16 +89,23 @@ export class AMQPConnectionManager
       this.logger.log(`No groups associated, initializing all consumers without groups`)
     }
 
-    const configConsumers = this.classDiscovery.getConfigConsumers(consumerList);
-    const decoratorConsumers = this.classDiscovery.discoverDecoratedConsumers()
+    const allConsumers: Array<RabbitMQConsumerResolved> = [];
 
-    const allConsumers = [...configConsumers, ...decoratorConsumers]
+    for (const [connName, holder] of this.connections) {
+      const configConsumers = this.classDiscovery
+        .getConfigConsumers(holder.config.consumerChannels ?? [])
+        .map(c => ({ ...c, connection: connName }));
+      allConsumers.push(...configConsumers);
+    }
+
+    const decoratorConsumers = this.classDiscovery.discoverDecoratedConsumers();
+    allConsumers.push(...decoratorConsumers);
+
     const dupQueues = new Set<string>();
     for (const c of allConsumers) {
       if (dupQueues.has(c.queue)) {
         throw new Error(`RabbitMQModule: Duplicate queue name "${c.queue}" found across config and decorator consumers.`);
       }
-
       dupQueues.add(c.queue);
     }
 
@@ -116,7 +118,8 @@ export class AMQPConnectionManager
         continue;
       }
 
-      await this.buildConsumer().createConsumer(consumer, consumer.handler)
+      const connName = consumer.connection ?? "default";
+      await this.buildConsumer(connName).createConsumer(consumer, consumer.handler)
 
       this.logger.debug({
         type: "initialization",
@@ -129,139 +132,54 @@ export class AMQPConnectionManager
   }
 
   async onApplicationShutdown() {
-    this.logger.log("Closing RabbitMQ Connection");
-    await this.consumerConn?.close();
-    await this.publisherConn?.close();
+    this.logger.log("Closing RabbitMQ connections");
+    for (const [, holder] of this.connections) {
+      await holder.consumerConn?.close();
+      await holder.publisherConn?.close();
+    }
   }
 
-  private async connectBroker(type: ConnectionType): Promise<AmqpConnectionManager> {
-    const conn = connect(this.opts.connectionString, this.buildConnectionOptions(type));
-
-    await new Promise<void>((resolve) => {
-      this.attachEvents(conn, type, resolve);
-    });
-
-    return conn;
-  }
-
-  private buildConnectionOptions(suffix: string) {
-    return {
-      heartbeatIntervalInSeconds: this.opts.extraOptions.heartbeatIntervalInSeconds,
-      reconnectTimeInSeconds: this.opts.extraOptions.reconnectTimeInSeconds,
-      connectionOptions: {
-        keepAlive: true,
-        keepAliveDelay: 5000,
-        servername: hostname(),
-        clientProperties: {
-          connection_name: `${process.env.PROJECT_NAME}-${hostname()}-${suffix}`
-        },
-      },
-    };
-  }
-
-  private async connect() {
-    this.consumerConn = await this.connectBroker("consumer");
-    this.publisherConn = await this.connectBroker("publisher");
-
-
-    await this.assertExchanges();
-  }
-
-  private attachEvents(conn: AmqpConnectionManager, type: ConnectionType, resolve: any) {
-    conn.on("connect", async ({ url }: { url: string }) => {
-      this.logger.log(
-        `Rabbit ${type} connected to ${url.replace(
-          new RegExp(url.replace(/amqp:\/\/[^:]*:([^@]*)@.*?$/i, "$1"), "g"),
-          "***",
-        )}`,
+  private resolveConnections(): Array<ConnectionConfig> {
+    if (this.opts.connectionString && this.opts.connections) {
+      throw new Error(
+        'RabbitMQModule: Cannot set both "connectionString" and "connections". Use one or the other.'
       );
-      resolve(true);
-    });
+    }
 
-    conn.on("disconnect", ({ err }) => {
-      this.logger.warn(`Disconnected from rabbitmq: ${err.message}`);
-
-      if (
-        this.rabbitTerminalErrors.some((errorMessage) =>
-          err.message.toLowerCase().includes(errorMessage),
-        )
-      ) {
-        conn.close();
-
-        this.logger.error({
-          message: `RabbitMQ Disconnected with a terminal error, impossible to reconnect `,
-          error: err,
-          x: err.message,
-        });
+    if (this.opts.connections) {
+      const names = this.opts.connections.map(c => c.name);
+      const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
+      if (duplicates.length > 0) {
+        throw new Error(`RabbitMQModule: Duplicate connection name "${duplicates[0]}".`);
       }
-    });
+      return this.opts.connections;
+    }
 
-    conn.on("connectFailed", ({ err }) => {
-      this.logger.error(
-        `Failure to connect to RabbitMQ instance: ${err.message}`,
-      );
-    });
+    return [{
+      name: "default",
+      connectionString: this.opts.connectionString,
+      delayExchangeName: this.opts.delayExchangeName,
+      assertExchanges: this.opts.assertExchanges,
+      consumerChannels: this.opts.consumerChannels,
+    }];
+  }
 
-    if (type === "publisher") {
-      conn.on("blocked", ({ reason }) => {
-        this.logger.error(`RabbitMQ broker is blocked with reason: ${reason}`);
-        this.connectionBlockedReason = reason;
-      });
+  private async connect(): Promise<void> {
+    const configs = this.resolveConnections();
 
-      conn.on("unblocked", () => {
-        this.logger.log(
-          `RabbitMQ broker connection is unblocked, last reason was: ${this.connectionBlockedReason}`,
-        );
-      });
+    for (const config of configs) {
+      const holder = await this.connectionFactory.create(config);
+      this.connections.set(config.name, holder);
     }
   }
 
-  private getConnection(type: ConnectionType) {
-    if (type === "publisher") {
-      return this.publisherConn;
-    } else {
-      return this.consumerConn;
-    }
-  }
-
-  private async assertExchanges(): Promise<void> {
-    await new Promise((resolve) => {
-      this.publisherWrapper = this.getConnection(
-        "publisher",
-      ).createChannel({
-        name: `${process.env.PROJECT_NAME}_publish`,
-        confirm: true,
-        publishTimeout: 60000,
-      });
-
-      this.publisherWrapper.on("connect", () => {
-        this.logger.debug("Initiating RabbitMQ producers");
-        resolve(true);
-      });
-
-      this.publisherWrapper.on("close", () => {
-        this.logger.debug("Closing RabbitMQ producer channel");
-      });
-
-      this.publisherWrapper.on("error", (err, info) => {
-        this.logger.error("Cannot open publish channel", err, info);
-      });
-    });
-
-    for (const publisher of this.opts
-      ?.assertExchanges ?? []) {
-      await this.publisherWrapper.addSetup(
-        async (channel: ConfirmChannel) => {
-          await channel.assertExchange(publisher.name, publisher.type, {
-            durable: publisher?.options?.durable ?? true,
-            autoDelete: publisher?.options?.autoDelete ?? false,
-          });
-        },
-      );
-    }
-  }
-
-  private buildConsumer(): RabbitMQConsumer {
-    return new RabbitMQConsumer(this.consumerConn, this.opts, this.publisherWrapper);
+  private buildConsumer(connectionName: string = "default"): RabbitMQConsumer {
+    const holder = this.getConnectionHolder(connectionName);
+    return new RabbitMQConsumer(
+      holder.consumerConn,
+      holder.config.delayExchangeName,
+      this.opts.extraOptions.logType,
+      holder.publisherWrapper,
+    );
   }
 }

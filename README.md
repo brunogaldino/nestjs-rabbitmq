@@ -18,6 +18,10 @@ An opinionated NestJS module for RabbitMQ with built-in retry strategies, dead l
 - [Publishers](#publishers)
   - [Publishing messages](#publishing-messages)
   - [Typed publishing](#typed-publishing)
+- [Multi-vhost Connections](#multi-vhost-connections)
+  - [Named connections](#named-connections)
+  - [Targeting a connection from consumers](#targeting-a-connection-from-consumers)
+  - [Publishing to a specific connection](#publishing-to-a-specific-connection)
 - [Retry Strategy](#retry-strategy)
 - [Dead Letter Strategy](#dead-letter-strategy)
 - [Disabling the automatic ack](#disabling-the-automatic-ack)
@@ -25,6 +29,7 @@ An opinionated NestJS module for RabbitMQ with built-in retry strategies, dead l
 - [Extra Options](#extra-options)
   - [Consumer manual loading](#consumer-manual-loading)
   - [Message inspection and logging](#message-inspection-and-logging)
+  - [Health check](#health-check)
 - [Building locally](#building-locally)
 - [License](#license)
 
@@ -139,7 +144,7 @@ that already exist (declared via `assertExchanges`).
 Decorate any method with `@RabbitConsumer()` and the library will
 automatically discover and wire it up during application bootstrap.
 This is the recommended approach for most use cases since it keeps the
-consumer logic colocated with the handler.
+consumer logic located with the handler.
 
 ```typescript
 import { Injectable } from '@nestjs/common';
@@ -264,6 +269,7 @@ async processHeavyJob(content: any) { ... }
 ```
 
 The active group is determined by:
+
 1. The `RMQ_CONSUMER_GROUP` environment variable (highest priority)
 2. The `group` parameter passed to `createConsumers(group)`
 3. Defaults to `"rabbit-default"`
@@ -314,6 +320,94 @@ await this.rabbit.publish<OrderPayload>('orders', 'order.created', {
 You can also pass custom publish options as a fourth argument, such as
 additional headers or properties.
 
+## Multi-vhost Connections
+
+If your application needs to consume from or publish to multiple RabbitMQ
+vhosts (or entirely different brokers), you can use named connections.
+Each connection is a self-contained unit with its own `connectionString`,
+`delayExchangeName`, `assertExchanges`, and `consumerChannels`.
+
+### Named connections
+
+Replace the flat connection fields with a `connections` array. Each entry
+must have a unique `name`:
+
+```typescript
+import { RabbitMQModule, ConnectionConfig } from '@bgaldino/nestjs-rabbitmq';
+
+RabbitMQModule.forRoot({
+  connections: [
+    {
+      name: 'default',
+      connectionString: 'amqp://localhost/main',
+      delayExchangeName: 'my_app',
+      assertExchanges: [{ name: 'orders', type: 'topic' }],
+    },
+    {
+      name: 'shared-bus',
+      connectionString: 'amqp://localhost/shared',
+      delayExchangeName: 'shared_app',
+      assertExchanges: [{ name: 'events', type: 'topic' }],
+    },
+  ],
+})
+```
+
+The flat shorthand (`connectionString` at the root level) still works for
+single-connection setups. Internally it becomes a connection named
+`"default"`. You cannot set both `connectionString` and `connections` at the
+same time.
+
+### Targeting a connection from consumers
+
+Add the `connection` field to `@RabbitConsumer()` or to a config-based
+consumer to specify which connection it should attach to. If omitted,
+it defaults to `"default"`:
+
+```typescript
+@RabbitConsumer({
+  queue: 'events.audit',
+  exchangeName: 'events',
+  routingKey: '#',
+  connection: 'shared-bus',
+})
+async auditEvents(content: any) { ... }
+```
+
+Config-based consumers declared inside a connection's `consumerChannels` are
+automatically scoped to that connection:
+
+```typescript
+connections: [
+  {
+    name: 'default',
+    connectionString: 'amqp://localhost/main',
+    delayExchangeName: 'my_app',
+    assertExchanges: [{ name: 'orders', type: 'topic' }],
+    consumerChannels: [
+      defineRabbitConsumer({
+        queue: 'order.created',
+        exchangeName: 'orders',
+        routingKey: 'order.created',
+        handler: { provider: OrderService, methodName: 'handleOrderCreated' },
+      }),
+    ],
+  },
+],
+```
+
+### Publishing to a specific connection
+
+Pass the `connection` option to `publish()`:
+
+```typescript
+await this.rabbit.publish('events', 'audit.created', payload, {
+  connection: 'shared-bus',
+});
+```
+
+When omitted, the message is published to the `"default"` connection.
+
 ## Retry Strategy
 
 Each consumer can define a `retryStrategy` to handle transient failures. When
@@ -346,6 +440,7 @@ before the next retry. The return value controls the behavior:
   straight to the dead letter strategy
 
 **Defaults** (when `retryStrategy` is not specified):
+
 - `enabled`: true
 - `maxAttempts`: 5
 - `delay`: () => 5000
@@ -455,12 +550,12 @@ async function bootstrap() {
   await app.listen(3000);
 
   const rabbit = app.get(RabbitMQService);
-  await rabbit.begin();
+  await rabbit.startConsumers();
 }
 bootstrap();
 ```
 
-You can also pass a group name to `begin(group)` to initialize only consumers
+You can also pass a group name to `startConsumers(group)` to initialize only consumers
 belonging to that group.
 
 ### Message inspection and logging
@@ -484,7 +579,12 @@ connections:
 
 ```typescript
 const rabbit = app.get(RabbitMQService);
+
+// Check all connections (returns 0 if any connection is offline)
 const status = rabbit.checkHealth(); // 1 = online, 0 = offline
+
+// Check a specific connection
+const sharedStatus = rabbit.checkHealth('shared-bus');
 ```
 
 ## Building locally

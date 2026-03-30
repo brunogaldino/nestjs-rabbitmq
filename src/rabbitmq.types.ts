@@ -83,18 +83,23 @@ export type ConsumerOptions = {
      *  - >1: It will send to the delay queue for that amount of time before returning it to the end of the original queue 
      *  - =0: Should retry right now, and will republish at the end of the original queue 
      *  - -1: Should skip any retrying attempt and send to the DLQStrategy 
+     * 
+     * Accepts a function or a string referencing a method name on the same class.
+     * When using a string, the method is resolved and bound automatically at discovery time.
      * @default: () => 5000*/
-    delay?: IDelayProgression;
+    delay?: IDelayProgression | string;
   };
 
   deadLetterStrategy?: {
     /** Callback that will be executed before sending the message to the DLQ
      * This handler will follow the `IRabbitDeadletterCallback` interface and expects
-     * the return of a boolean_. If the return is `TRUE`, it will send the message
+     * the return of a boolean. If the return is `TRUE`, it will send the message
      * to the DLQ right after, otherwise, it will skip sending it
-     * @example messageHandler: this.yourService.deadLetterFunction.bind(this.yourService)
+     * 
+     * Accepts a function or a string referencing a method name on the same class.
+     * When using a string, the method is resolved and bound automatically at discovery time.
      */
-    callback?: IRabbitDeadletterCallback;
+    callback?: IRabbitDeadletterCallback | string;
 
     /**
      * Suffix used when setting up the DLQ Queues
@@ -204,8 +209,15 @@ export type ResolvedConsumerOptions = ConsumerOptions & {
   prefetch: number;
   autoDelete: boolean;
   group: string;
-  retryStrategy: Required<NonNullable<ConsumerOptions["retryStrategy"]>>;
-  deadLetterStrategy: Required<NonNullable<ConsumerOptions["deadLetterStrategy"]>>;
+  retryStrategy: {
+    enabled: boolean;
+    maxAttempts: number;
+    delay: IDelayProgression;
+  };
+  deadLetterStrategy: {
+    callback: IRabbitDeadletterCallback;
+    suffix: string;
+  };
 };
 
 // eslint-disable-next-line @typescript-eslint/ban-types

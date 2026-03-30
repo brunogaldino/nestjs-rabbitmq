@@ -37,6 +37,8 @@ export class ClassDiscovery {
         const meta = this.reflector.get<ConsumerOptions>(RABBIT_HANDLER_METADATA, instance[method]);
         if (!meta) continue;
 
+        this.resolveStrategyMethods(meta, instance);
+
         discovered.push({
           ...meta,
           handler: instance[method].bind(instance),
@@ -66,5 +68,25 @@ export class ClassDiscovery {
     }
 
     return consumers;
+  }
+
+  private resolveStrategyMethods(meta: ConsumerOptions, instance: any): void {
+    const className = instance.constructor.name;
+
+    if (typeof meta.retryStrategy?.delay === "string") {
+      const fn = instance[meta.retryStrategy.delay];
+      if (typeof fn !== "function") {
+        throw new Error(`RabbitMQModule: Method "${meta.retryStrategy.delay}" not found on ${className}`);
+      }
+      meta.retryStrategy.delay = fn.bind(instance);
+    }
+
+    if (typeof meta.deadLetterStrategy?.callback === "string") {
+      const fn = instance[meta.deadLetterStrategy.callback];
+      if (typeof fn !== "function") {
+        throw new Error(`RabbitMQModule: Method "${meta.deadLetterStrategy.callback}" not found on ${className}`);
+      }
+      meta.deadLetterStrategy.callback = fn.bind(instance);
+    }
   }
 }

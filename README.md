@@ -445,6 +445,13 @@ before the next retry. The return value controls the behavior:
 - `maxAttempts`: 5
 - `delay`: () => 5000
 
+You can also give a "string" value referring a method of the same class,
+following the interface:
+
+```typescript
+function retry(content: any, attempt: number, exception: Error): Promise<number> | number;
+```
+
 When the maximum number of attempts is reached, the message is nacked and sent
 to the dead letter queue.
 
@@ -479,6 +486,13 @@ the raw message content and should return a boolean:
 - `false`: the message is acknowledged and dropped, it will not go to the DLQ
 
 If the callback throws an error, the message is forwarded to the DLQ regardless.
+
+Like the `retryStrategy`, you can pass a "string" of the method name you want
+to call if it is in the same class. The method should implement the interface:
+
+```typescript
+function (content: T): Promise<boolean> | boolean;
+```
 
 ## Disabling the automatic ack
 

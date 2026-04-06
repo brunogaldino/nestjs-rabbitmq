@@ -10,11 +10,12 @@ An opinionated NestJS module for RabbitMQ with built-in retry strategies, dead l
   - [forRoot](#forroot)
   - [forRootAsync](#forrootasync)
 - [Consumers](#consumers)
+  - [Enabling consumers](#enabling-consumers)
+  - [Selective consumer activation](#selective-consumer-activation)
   - [Decorator-based consumers](#decorator-based-consumers)
   - [Config-based consumers](#config-based-consumers)
   - [Mixed usage](#mixed-usage)
   - [Handler signature](#handler-signature)
-  - [Consumer groups](#consumer-groups)
 - [Publishers](#publishers)
   - [Publishing messages](#publishing-messages)
   - [Typed publishing](#typed-publishing)
@@ -27,7 +28,6 @@ An opinionated NestJS module for RabbitMQ with built-in retry strategies, dead l
 - [Disabling the automatic ack](#disabling-the-automatic-ack)
 - [Custom Header Metadata](#custom-header-metadata)
 - [Extra Options](#extra-options)
-  - [Consumer manual loading](#consumer-manual-loading)
   - [Message inspection and logging](#message-inspection-and-logging)
   - [Health check](#health-check)
 - [Building locally](#building-locally)
@@ -57,8 +57,13 @@ and dead letter exchanges instead of the delayed message plugin.
 
 ## Getting Started
 
-The `RabbitMQModule` is marked as `@Global`, so importing it once is enough
-to inject `RabbitMQService` anywhere in your application.
+`RabbitMQModule.forRoot()` is marked as `@Global`, so importing it once is
+enough to inject `RabbitMQService` anywhere in your application. It handles
+connections and publishing.
+
+To enable consumers, import `RabbitMQModule.withConsumers()` alongside
+`forRoot()`. Without it, only publisher connections are opened and no messages
+are consumed.
 
 ### forRoot
 
@@ -77,6 +82,7 @@ import { RabbitMQModule } from '@bgaldino/nestjs-rabbitmq';
         { name: 'notifications', type: 'fanout' },
       ],
     }),
+    RabbitMQModule.withConsumers(),
   ],
 })
 export class AppModule {}
@@ -138,6 +144,81 @@ validates that no duplicate queue names exist across both sources.
 All queues are created as [quorum queues](https://www.rabbitmq.com/docs/quorum-queues)
 by default. Consumers do not create exchanges, they only bind to exchanges
 that already exist (declared via `assertExchanges`).
+
+Consumers are only activated when `RabbitMQModule.withConsumers()` is imported.
+Without it, no consumer connections are opened and no messages are consumed.
+
+### Enabling consumers
+
+Import `withConsumers()` alongside `forRoot()` to enable consumer discovery
+and activation. The no-arg form discovers all `@RabbitConsumer` decorated
+methods across the application and processes all `consumerChannels` from the
+connection config:
+
+```typescript
+@Module({
+  imports: [
+    RabbitMQModule.forRoot({ ... }),
+    RabbitMQModule.withConsumers(),
+  ],
+})
+export class AppModule {}
+```
+
+### Selective consumer activation
+
+When your application has multiple deployments (e.g., an API server and a
+background worker), you can pass explicit handler classes to `withConsumers()`
+to control which consumers are activated in each deployment:
+
+```typescript
+// API deployment — publish only, no consumers
+@Module({
+  imports: [
+    RabbitMQModule.forRoot({ ... }),
+  ],
+})
+export class ApiAppModule {}
+
+// Worker deployment — only order and payment consumers
+@Module({
+  imports: [
+    RabbitMQModule.forRoot({ ... }),
+    RabbitMQModule.withConsumers([OrderHandler, PaymentHandler]),
+  ],
+})
+export class WorkerAppModule {}
+
+// Report deployment — only report consumers
+@Module({
+  imports: [
+    RabbitMQModule.forRoot({ ... }),
+    RabbitMQModule.withConsumers([ReportHandler]),
+  ],
+})
+export class ReportAppModule {}
+```
+
+When handler classes are passed, only `@RabbitConsumer` methods on those
+classes are activated. Config consumers (`consumerChannels`) are always
+processed regardless.
+
+Keep in mind that all `@RabbitConsumer` methods on a given class are
+activated together. If a class has consumers meant for different deployments,
+split it into separate classes — one per deployment concern:
+
+```typescript
+// Each class serves a single deployment
+class OrderCreateHandler {
+  @RabbitConsumer({ queue: 'orders.create', ... })
+  async handle() { ... }
+}
+
+class OrderReportHandler {
+  @RabbitConsumer({ queue: 'orders.report', ... })
+  async handle() { ... }
+}
+```
 
 ### Decorator-based consumers
 
@@ -251,32 +332,6 @@ export class OrderService implements ConsumerHandler<OrderPayload> {
   }
 }
 ```
-
-### Consumer groups
-
-Groups allow you to control which consumers are enabled on a given deployment.
-This is useful when multiple instances of the same application serve different
-roles.
-
-```typescript
-@RabbitConsumer({
-  queue: 'heavy.processing',
-  exchangeName: 'jobs',
-  routingKey: 'heavy.*',
-  group: 'workers',
-})
-async processHeavyJob(content: any) { ... }
-```
-
-The active group is determined by:
-
-1. The `RMQ_CONSUMER_GROUP` environment variable (highest priority)
-2. The `group` parameter passed to `createConsumers(group)`
-3. Defaults to `"rabbit-default"`
-
-Consumers without an explicit group are assigned to the active group and will
-always be initialized. Consumers with a group that does not match the active
-group are skipped.
 
 ## Publishers
 
@@ -494,28 +549,6 @@ to call if it is in the same class. The method should implement the interface:
 function (content: T): Promise<boolean> | boolean;
 ```
 
-## Disabling the automatic ack
-
-By default, the consumer automatically acknowledges the message after the
-handler completes. If you need manual control over acknowledgement, disable it:
-
-```typescript
-@RabbitConsumer({
-  queue: 'order.process',
-  exchangeName: 'orders',
-  routingKey: 'order.process',
-  autoAck: false,
-})
-async processOrder(content: OrderPayload, params: MessageParams) {
-  // do work
-  params.channel.ack(params.message);
-}
-```
-
-When `autoAck` is disabled, you are responsible for calling `channel.ack()` or
-`channel.nack()`. If you do not acknowledge the message, it will remain
-unacknowledged and RabbitMQ will redeliver it when the consumer disconnects.
-
 ## Custom Header Metadata
 
 Every published message includes the following custom headers automatically:
@@ -536,41 +569,6 @@ The `originalRoutingKey` field in `MessageParams` is derived from these headers
 when available, falling back to the message's current routing key.
 
 ## Extra Options
-
-### Consumer manual loading
-
-Consumers are attached during the `OnApplicationBootstrap` lifecycle, which
-means the application begins receiving messages as soon as all modules are
-initialized, but before `app.listen()` resolves.
-
-If you need consumers to start only after the HTTP server is ready (or need
-to defer startup for any other reason), set `consumerManualLoad: true` and
-call the initialization manually:
-
-```typescript
-RabbitMQModule.forRoot({
-  connectionString: 'amqp://localhost',
-  delayExchangeName: 'my_app',
-  assertExchanges: [],
-  extraOptions: {
-    consumerManualLoad: true,
-  },
-})
-```
-
-```typescript
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  await app.listen(3000);
-
-  const rabbit = app.get(RabbitMQService);
-  await rabbit.startConsumers();
-}
-bootstrap();
-```
-
-You can also pass a group name to `startConsumers(group)` to initialize only consumers
-belonging to that group.
 
 ### Message inspection and logging
 
@@ -595,11 +593,14 @@ connections:
 const rabbit = app.get(RabbitMQService);
 
 // Check all connections (returns 0 if any connection is offline)
-const status = rabbit.checkHealth(); // 1 = online, 0 = offline
+const status = await rabbit.checkHealth(); // 1 = online, 0 = offline
 
 // Check a specific connection
-const sharedStatus = rabbit.checkHealth('shared-bus');
+const sharedStatus = await rabbit.checkHealth('shared-bus');
 ```
+
+When `withConsumers()` is not imported, the health check only verifies
+publisher connections.
 
 ## Building locally
 

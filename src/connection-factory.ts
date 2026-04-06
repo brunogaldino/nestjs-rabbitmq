@@ -10,7 +10,7 @@ import { ConnectionConfig, ConnectionType, ModuleOptions } from "./rabbitmq.type
 
 export type ConnectionHolder = {
   config: ConnectionConfig;
-  consumerConn: AmqpConnectionManager;
+  consumerConn: AmqpConnectionManager | null;
   publisherConn: AmqpConnectionManager;
   publisherWrapper: ChannelWrapper;
 };
@@ -33,6 +33,17 @@ export class ConnectionFactory {
     const publisherWrapper = await this.assertExchanges(publisherConn, config);
 
     return { config, consumerConn, publisherConn, publisherWrapper };
+  }
+
+  async createPublisher(config: ConnectionConfig): Promise<ConnectionHolder> {
+    const publisherConn = await this.connectBroker(config, "publisher");
+    const publisherWrapper = await this.assertExchanges(publisherConn, config);
+
+    return { config, consumerConn: null, publisherConn, publisherWrapper };
+  }
+
+  async attachConsumer(holder: ConnectionHolder): Promise<void> {
+    holder.consumerConn = await this.connectBroker(holder.config, "consumer")
   }
 
   private async connectBroker(config: ConnectionConfig, type: ConnectionType): Promise<AmqpConnectionManager> {

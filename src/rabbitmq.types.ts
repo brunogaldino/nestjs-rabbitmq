@@ -33,11 +33,6 @@ export type ConsumerOptions = {
   /** Name of the Queue */
   queue: string;
 
-  /** The SDK will send an ACK at the end of the consumer function
-   * If *disabled* your consumer will need to call channel.ack() manually !
-   * @defaultValue true*/
-  autoAck?: boolean;
-
   /** Amount of messages that will be delivered to the consumer at once
    * @default 10 */
   prefetch?: number;
@@ -107,14 +102,6 @@ export type ConsumerOptions = {
      */
     suffix?: string;
   };
-
-  /** Groups are used to define which consumers will be enabled on a given deployment. 
-   * The application can define which consumer group will be enabled by setting the `RMQ_CONSUMER_GROUP` environment variable 
-   * OR by passing the group during the `createConsumers()` call when `consumerManualLoad = true` option is set
-   *
-   * By default, all consumers with no defined group will be initialized.
-   */
-  group?: string;
 };
 
 export type Exchange = {
@@ -168,16 +155,6 @@ export type ModuleOptions = {
   consumerChannels?: Array<ConsumerChannel>;
 
   extraOptions?: {
-    /** When **TRUE** the SDK will not initiate the consumers automatically during the _OnModuleInit_
-     * To initiate the consumer, you can call it at the end of the `bootstrap()` on your `main.ts` file
-     * @default false
-     * @example
-     * ```javascript
-     * const rabbitService: RabbitMQService = app.get(RabbitMQService);
-     * await rabbitService.startConsumers();
-     * ``` */
-    consumerManualLoad?: boolean;
-
     /** Enables the message inspection of different parts of the RabbitMQ
      * this option can be overriden by using the env RABBITMQ_LOG_TYPE */
     logType?: LogType;
@@ -204,11 +181,9 @@ export type ModuleOptions = {
 };
 
 export type ResolvedConsumerOptions = ConsumerOptions & {
-  autoAck: boolean;
   durable: boolean;
   prefetch: number;
   autoDelete: boolean;
-  group: string;
   retryStrategy: {
     enabled: boolean;
     maxAttempts: number;
@@ -220,8 +195,8 @@ export type ResolvedConsumerOptions = ConsumerOptions & {
   };
 };
 
-// eslint-disable-next-line @typescript-eslint/ban-types
 export type MethodNames<T> = {
+  // eslint-disable-next-line @typescript-eslint/ban-types
   [K in keyof T]: T[K] extends Function ? K : never;
 }[keyof T] & string;
 

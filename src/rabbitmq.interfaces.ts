@@ -1,11 +1,10 @@
 import { ChannelWrapper } from "amqp-connection-manager";
-import { ConfirmChannel, ConsumeMessage } from "amqplib";
+import { ConsumeMessage } from "amqplib";
 import { ModuleOptions } from "./rabbitmq.types";
 import { ModuleMetadata, Type } from "@nestjs/common";
 
 export type MessageParams = {
   message: ConsumeMessage;
-  channel: ConfirmChannel;
   queue: string;
   originalRoutingKey?: string;
 };

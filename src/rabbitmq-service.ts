@@ -17,16 +17,20 @@ export class RabbitMQService {
    * When called with a connection name, checks only that connection.
    * @returns {number} 1 - Online | 0 - Offline
    */
-  public checkHealth(connectionName?: string): number {
+  public async checkHealth(connectionName?: string): Promise<number> {
+    await this.AMQPConn.ensureConnected();
+
     if (connectionName) {
       const holder = this.AMQPConn.getConnectionHolder(connectionName);
-      return holder.consumerConn?.isConnected() && holder.publisherConn?.isConnected() ? 1 : 0;
+      const publisherOk = holder.publisherConn?.isConnected();
+      const consumerOk = holder.consumerConn ? holder.consumerConn.isConnected() : true;
+      return publisherOk && consumerOk ? 1 : 0;
     }
 
     for (const holder of this.AMQPConn.getAllConnections()) {
-      if (!holder.consumerConn?.isConnected() || !holder.publisherConn?.isConnected()) {
-        return 0;
-      }
+      const publisherOk = holder.publisherConn?.isConnected();
+      const consumerOk = holder.consumerConn ? holder.consumerConn.isConnected() : true;
+      if (!publisherOk || !consumerOk) return 0;
     }
     return 1;
   }
@@ -61,6 +65,7 @@ export class RabbitMQService {
     };
 
     try {
+      await this.AMQPConn.ensureConnected();
       const connectionName = options?.connection ?? "default";
       const holder = this.AMQPConn.getConnectionHolder(connectionName);
       const { connection: _conn, ...publishOptions } = options ?? {};
@@ -85,10 +90,6 @@ export class RabbitMQService {
     }
 
     return !hasErrors;
-  }
-
-  async startConsumers(group?: string) {
-    await this.AMQPConn.createConsumers(group)
   }
 
   private inspectPublisher(
@@ -118,5 +119,4 @@ export class RabbitMQService {
     if (error) logData["error"] = error;
     this.logger[logLevel](logData);
   }
-
 }

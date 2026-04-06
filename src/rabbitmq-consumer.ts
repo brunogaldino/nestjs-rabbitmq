@@ -27,11 +27,9 @@ export class RabbitMQConsumer {
   private readonly delayExchange: string;
   private readonly logType: LogType;
   private defaultConsumerOptions: Partial<ConsumerOptions> = {
-    autoAck: true,
     durable: true,
     prefetch: 10,
     autoDelete: false,
-    group: "rabbit-default",
     retryStrategy: {
       enabled: true,
       maxAttempts: 5,
@@ -146,7 +144,6 @@ export class RabbitMQConsumer {
     try {
       await callback(tryParseJson(message.content.toString("utf8")), {
         message,
-        channel,
         queue: consumer.queue,
         originalRoutingKey: message.properties.headers["x-original-routing-key"] ?? message.fields.routingKey ?? null
       });
@@ -183,7 +180,7 @@ export class RabbitMQConsumer {
       return;
     }
 
-    if ((!hasErrors && consumer.autoAck) || (hasErrors && hasRetried)) {
+    if (!hasErrors || (hasErrors && hasRetried)) {
       channel.ack(message);
     } else if (hasErrors && !hasRetried) {
       let shouldNack = true;

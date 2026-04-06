@@ -1,7 +1,7 @@
 export { RabbitMQModule } from "./rabbitmq.module";
 export { RabbitMQService } from "./rabbitmq-service";
 export { RABBIT_OPTIONS } from "./rabbitmq.constants";
-export { ConfirmChannel, ConsumeMessage } from "amqplib";
+export { ConsumeMessage } from "amqplib";
 export {
   ConsumerHandler,
   RabbitMQOptionsFactory,

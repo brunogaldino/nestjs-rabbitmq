@@ -7,6 +7,7 @@ import { InstanceWrapper } from "@nestjs/core/injector/instance-wrapper";
 @Injectable()
 export class ClassDiscovery {
   private readonly wrappers: InstanceWrapper[];
+
   constructor(
     private readonly discoveryService: DiscoveryService,
     private readonly metadataScanner: MetadataScanner,
@@ -43,6 +44,38 @@ export class ClassDiscovery {
           ...meta,
           handler: instance[method].bind(instance),
         })
+      }
+    }
+
+    return discovered;
+  }
+
+  public discoverFromClasses(classes: Type[]): Array<RabbitMQConsumerResolved> {
+    const discovered: Array<RabbitMQConsumerResolved> = [];
+
+    for (const cls of classes) {
+      const wrapper = this.wrappers.find(w => w.metatype === cls);
+      if (!wrapper?.instance) {
+        throw new Error(
+          `RabbitMQModule: Provider ${cls.name} not found. Is it registered in a module?`
+        );
+      }
+
+      const { instance } = wrapper;
+      const methods = this.metadataScanner.getAllMethodNames(instance);
+
+      for (const method of methods) {
+        const meta = this.reflector.get<ConsumerOptions>(
+          RABBIT_HANDLER_METADATA,
+          instance[method],
+        );
+        if (!meta) continue;
+
+        this.resolveStrategyMethods(meta, instance);
+        discovered.push({
+          ...meta,
+          handler: instance[method].bind(instance),
+        });
       }
     }
 

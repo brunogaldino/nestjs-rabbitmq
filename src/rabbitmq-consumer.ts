@@ -24,7 +24,6 @@ export class RabbitMQConsumer {
   private logger = new Logger(RabbitMQConsumer.name);
 
   private readonly connection: AmqpConnectionManager;
-  private readonly delayExchange: string;
   private readonly logType: LogType;
   private defaultConsumerOptions: Partial<ConsumerOptions> = {
     durable: true,
@@ -44,14 +43,12 @@ export class RabbitMQConsumer {
 
   constructor(
     connection: AmqpConnectionManager,
-    delayExchangeName: string,
     logType: LogType,
     publishChannelWrapper: ChannelWrapper,
   ) {
     this.connection = connection;
-    this.delayExchange = `${delayExchangeName}.delay`;
     this.logType = logType;
-    this.retryHandler = new RetryHandler(publishChannelWrapper, this.delayExchange)
+    this.retryHandler = new RetryHandler(publishChannelWrapper)
   }
 
   public async createConsumer(
@@ -119,7 +116,6 @@ export class RabbitMQConsumer {
       return;
     }
 
-    await channel.assertExchange(this.delayExchange, "topic", { durable: true });
     await channel.assertQueue(waitQueue, {
       durable: true,
       arguments: {
@@ -128,7 +124,6 @@ export class RabbitMQConsumer {
         "x-dead-letter-routing-key": consumer.queue,
       },
     });
-    await channel.bindQueue(waitQueue, this.delayExchange, consumer.queue);
   }
 
   private async consume(

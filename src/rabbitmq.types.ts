@@ -12,7 +12,6 @@ export type ConnectionType = "consumer" | "publisher";
 export type ConnectionConfig = {
   name: string;
   connectionString: string | string[];
-  delayExchangeName: string;
   assertExchanges?: Array<Exchange>;
   consumerChannels?: Array<ConsumerChannel>;
 };
@@ -141,11 +140,6 @@ export type ModuleOptions = {
    * @example amqp://{user}:{password}@{url}/{vhost}
    * */
   connectionString?: string | string[];
-
-  /** The name of the centralized retry exchange that will be used
-   * a `.delay` will be added to the given name
-   * Will be asserted if it does not exists*/
-  delayExchangeName?: string;
 
   /** All exchanges declared here will be validated before attaching the consumers
    * If any of the exchanegs declared can not be asserted an error will be thrown */

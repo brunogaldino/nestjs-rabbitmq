@@ -1,6 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import {
-  delayExchangeName,
   RmqTestConfig,
   TestConsumers,
   TestExchanges,
@@ -75,14 +74,6 @@ describe("AMQPConnectionManager", () => {
 
   it("should return a truthy connection health", async () => {
     expect(testService.rabbitService.checkHealth()).toBeTruthy();
-  });
-
-  it("should assert the retry delay exchange", async () => {
-    expect(
-      await AMQPConnectionManager.publishChannelWrapper.checkExchange(
-        delayExchangeName + ".delay",
-      ),
-    ).toBeDefined();
   });
 
   describe("Publisher", () => {

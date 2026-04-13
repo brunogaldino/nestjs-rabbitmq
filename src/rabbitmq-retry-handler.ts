@@ -10,7 +10,6 @@ export class RetryHandler {
 
   constructor(
     private readonly publishChannel: ChannelWrapper,
-    private readonly delayExchange: string,
   ) { }
 
   async execute(
@@ -42,10 +41,11 @@ export class RetryHandler {
       return false;
     }
 
+    const retryQueue = `${consumer.queue}.retry`;
     try {
       return await this.publishChannel.publish(
-        this.delayExchange,
-        consumer.queue,
+        "",
+        retryQueue,
         stringify(tryParseJson(message.content.toString("utf8"))),
         {
           headers: {

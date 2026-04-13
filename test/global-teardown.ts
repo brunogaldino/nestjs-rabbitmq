@@ -1,6 +1,5 @@
 import { connect } from "amqp-connection-manager";
 import {
-  delayExchangeName,
   TestConsumers,
   TestExchanges,
 } from "./fixtures/configs/rmq-test.config";
@@ -22,8 +21,6 @@ export default async function (globalConfig, projectConfig) {
   for (const exchange of TestExchanges) {
     await channel.deleteExchange(exchange.name);
   }
-
-  await channel.deleteExchange(delayExchangeName + ".delay");
 
   await channel.close();
   await connection.close();

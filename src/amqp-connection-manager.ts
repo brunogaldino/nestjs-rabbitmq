@@ -136,7 +136,6 @@ export class AMQPConnectionManager
     return [{
       name: "default",
       connectionString: this.opts.connectionString,
-      delayExchangeName: this.opts.delayExchangeName,
       assertExchanges: this.opts.assertExchanges,
       consumerChannels: this.opts.consumerChannels,
     }];
@@ -146,7 +145,6 @@ export class AMQPConnectionManager
     const holder = this.getConnectionHolder(connectionName);
     return new RabbitMQConsumer(
       holder.consumerConn,
-      holder.config.delayExchangeName,
       this.opts.extraOptions.logType,
       holder.publisherWrapper,
     );

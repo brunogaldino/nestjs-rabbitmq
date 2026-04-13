@@ -37,8 +37,6 @@ export const TestConsumers: RabbitMQConsumerOptions[] = [
   },
 ];
 
-export const delayExchangeName = "test_delay";
-
 @Injectable()
 export class RmqTestConfig implements RabbitOptionsFactory {
   constructor(private readonly rmqTest: RmqTestService) {}
@@ -46,7 +44,6 @@ export class RmqTestConfig implements RabbitOptionsFactory {
   createRabbitOptions(): RabbitMQModuleOptions {
     return {
       connectionString: "amqp://localhost:5672",
-      delayExchangeName: delayExchangeName,
       assertExchanges: TestExchanges,
       extraOptions: {
         logType: "all",

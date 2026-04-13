@@ -76,7 +76,6 @@ import { RabbitMQModule } from '@bgaldino/nestjs-rabbitmq';
   imports: [
     RabbitMQModule.forRoot({
       connectionString: 'amqp://user:password@localhost:5672/vhost',
-      delayExchangeName: 'my_app',
       assertExchanges: [
         { name: 'orders', type: 'topic' },
         { name: 'notifications', type: 'fanout' },
@@ -102,7 +101,6 @@ class RabbitConfig implements RabbitMQOptionsFactory {
   createRabbitOptions(): ModuleOptions {
     return {
       connectionString: this.configService.get('RABBIT_URL'),
-      delayExchangeName: 'my_app',
       assertExchanges: [
         { name: 'orders', type: 'topic' },
       ],
@@ -127,7 +125,6 @@ You can also use `useFactory` directly:
 RabbitMQModule.forRootAsync({
   useFactory: (configService: ConfigService) => ({
     connectionString: configService.get('RABBIT_URL'),
-    delayExchangeName: 'my_app',
     assertExchanges: [],
   }),
   inject: [ConfigService],
@@ -259,7 +256,6 @@ import { defineRabbitConsumer } from '@bgaldino/nestjs-rabbitmq';
 
 RabbitMQModule.forRoot({
   connectionString: 'amqp://localhost',
-  delayExchangeName: 'my_app',
   assertExchanges: [{ name: 'orders', type: 'topic' }],
   consumerChannels: [
     defineRabbitConsumer({
@@ -380,7 +376,7 @@ additional headers or properties.
 If your application needs to consume from or publish to multiple RabbitMQ
 vhosts (or entirely different brokers), you can use named connections.
 Each connection is a self-contained unit with its own `connectionString`,
-`delayExchangeName`, `assertExchanges`, and `consumerChannels`.
+`assertExchanges`, and `consumerChannels`.
 
 ### Named connections
 
@@ -395,13 +391,11 @@ RabbitMQModule.forRoot({
     {
       name: 'default',
       connectionString: 'amqp://localhost/main',
-      delayExchangeName: 'my_app',
       assertExchanges: [{ name: 'orders', type: 'topic' }],
     },
     {
       name: 'shared-bus',
       connectionString: 'amqp://localhost/shared',
-      delayExchangeName: 'shared_app',
       assertExchanges: [{ name: 'events', type: 'topic' }],
     },
   ],
@@ -437,7 +431,6 @@ connections: [
   {
     name: 'default',
     connectionString: 'amqp://localhost/main',
-    delayExchangeName: 'my_app',
     assertExchanges: [{ name: 'orders', type: 'topic' }],
     consumerChannels: [
       defineRabbitConsumer({

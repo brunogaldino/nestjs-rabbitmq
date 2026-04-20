@@ -32,7 +32,7 @@ export const TestConsumers: RabbitMQConsumerOptions[] = [
     retryStrategy: {
       enabled: true,
       maxAttempts: 1,
-      delay: (attempt) => attempt,
+      retryFn: (attempt) => attempt,
     },
   },
 ];

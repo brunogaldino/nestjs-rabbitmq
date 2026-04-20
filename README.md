@@ -471,13 +471,13 @@ back to the original queue for another attempt.
   retryStrategy: {
     enabled: true,
     maxAttempts: 5,
-    delay: (content, attempt, error) => attempt * 5000,
+    retryFn: (content, attempt, error) => attempt * 5000,
   },
 })
 async processOrder(content: OrderPayload) { ... }
 ```
 
-The `delay` callback receives the message content, the current attempt number,
+The `retryFn` callback receives the message content, the current attempt number,
 and the error that was thrown. It should return the delay in milliseconds
 before the next retry. The return value controls the behavior:
 
@@ -491,7 +491,7 @@ before the next retry. The return value controls the behavior:
 
 - `enabled`: true
 - `maxAttempts`: 5
-- `delay`: () => 5000
+- `retryFn`: () => 5000
 
 You can also give a "string" value referring a method of the same class,
 following the interface:
@@ -505,7 +505,7 @@ to the dead letter queue.
 
 ## Dead Letter Strategy
 
-Each consumer can define a `deadLetterStrategy` to control what happens when
+Each consumer can define a `dlqStrategy` to control what happens when
 a message exhausts all retry attempts:
 
 ```typescript
@@ -513,9 +513,9 @@ a message exhausts all retry attempts:
   queue: 'order.process',
   exchangeName: 'orders',
   routingKey: 'order.process',
-  deadLetterStrategy: {
+  dlqStrategy: {
     suffix: '.dlq',
-    callback: async (content) => {
+    dlqFn: async (content) => {
       await alertService.notify('Order processing failed', content);
       return true;
     },
@@ -527,7 +527,7 @@ async processOrder(content: OrderPayload) { ... }
 The `suffix` controls the name of the dead letter queue. Defaults to `.dlq`,
 resulting in a queue named `{queue}.dlq`.
 
-The `callback` is executed before sending the message to the DLQ. It receives
+The `dlqFn` is executed before sending the message to the DLQ. It receives
 the raw message content and should return a boolean:
 
 - `true`: the message is forwarded to the DLQ after the callback executes
@@ -536,7 +536,7 @@ the raw message content and should return a boolean:
 If the callback throws an error, the message is forwarded to the DLQ regardless.
 
 Like the `retryStrategy`, you can pass a "string" of the method name you want
-to call if it is in the same class. The method should implement the interface:
+to call if it is in the same class. The method should implement the `IDLQFn` interface:
 
 ```typescript
 function (content: T): Promise<boolean> | boolean;

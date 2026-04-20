@@ -13,11 +13,11 @@ export interface IRabbitMQHandler<T = any> {
   (content: T, parameters?: MessageParams): Promise<void>;
 }
 
-export interface IRabbitDeadletterCallback<T = any> {
+export interface IDLQFn<T = any> {
   (content: T): Promise<boolean> | boolean;
 }
 
-export interface IDelayProgression {
+export interface IRetryProgression {
   (content: any, attempt: number, exception: Error): Promise<number> | number;
 }
 

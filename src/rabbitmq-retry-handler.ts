@@ -31,7 +31,7 @@ export class RetryHandler {
       return false;
     }
 
-    const retryDelay = await consumer.retryStrategy.delay(
+    const retryDelay = await consumer.retryStrategy.retryFn(
       tryParseJson(message.content.toString("utf8")),
       retryCount,
       error,

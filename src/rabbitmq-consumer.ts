@@ -32,10 +32,10 @@ export class RabbitMQConsumer {
     retryStrategy: {
       enabled: true,
       maxAttempts: 5,
-      delay: () => 5000,
+      retryFn: () => 5000,
     },
-    deadLetterStrategy: {
-      callback: async () => true,
+    dlqStrategy: {
+      dlqFn: async () => true,
       suffix: ".dlq",
     },
   };
@@ -74,7 +74,7 @@ export class RabbitMQConsumer {
       },
       durable: consumer.durable,
       autoDelete: consumer.autoDelete,
-      deadLetterRoutingKey: `${consumer.queue}${consumer.deadLetterStrategy.suffix}`,
+      deadLetterRoutingKey: `${consumer.queue}${consumer.dlqStrategy.suffix}`,
       deadLetterExchange: "",
     })
 
@@ -104,7 +104,7 @@ export class RabbitMQConsumer {
     consumer: ResolvedConsumerOptions,
   ): Promise<void> {
     const waitQueue = `${consumer.queue}.retry`;
-    const deadletterQueue = `${consumer.queue}${consumer.deadLetterStrategy.suffix}`;
+    const deadletterQueue = `${consumer.queue}${consumer.dlqStrategy.suffix}`;
     await channel.assertQueue(deadletterQueue, {
       durable: true,
       arguments: {
@@ -182,7 +182,7 @@ export class RabbitMQConsumer {
 
       try {
         shouldNack =
-          (await consumer.deadLetterStrategy.callback(
+          (await consumer.dlqStrategy.dlqFn(
             message.content.toString("utf8"),
           )) ?? true;
       } catch (e) {

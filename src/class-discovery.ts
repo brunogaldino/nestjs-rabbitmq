@@ -106,20 +106,20 @@ export class ClassDiscovery {
   private resolveStrategyMethods(meta: ConsumerOptions, instance: any): void {
     const className = instance.constructor.name;
 
-    if (typeof meta.retryStrategy?.delay === "string") {
-      const fn = instance[meta.retryStrategy.delay];
+    if (typeof meta.retryStrategy?.retryFn === "string") {
+      const fn = instance[meta.retryStrategy.retryFn];
       if (typeof fn !== "function") {
-        throw new Error(`RabbitMQModule: Method "${meta.retryStrategy.delay}" not found on ${className}`);
+        throw new Error(`RabbitMQModule: Method "${meta.retryStrategy.retryFn}" not found on ${className}`);
       }
-      meta.retryStrategy.delay = fn.bind(instance);
+      meta.retryStrategy.retryFn = fn.bind(instance);
     }
 
-    if (typeof meta.deadLetterStrategy?.callback === "string") {
-      const fn = instance[meta.deadLetterStrategy.callback];
+    if (typeof meta.dlqStrategy?.dlqFn === "string") {
+      const fn = instance[meta.dlqStrategy.dlqFn];
       if (typeof fn !== "function") {
-        throw new Error(`RabbitMQModule: Method "${meta.deadLetterStrategy.callback}" not found on ${className}`);
+        throw new Error(`RabbitMQModule: Method "${meta.dlqStrategy.dlqFn}" not found on ${className}`);
       }
-      meta.deadLetterStrategy.callback = fn.bind(instance);
+      meta.dlqStrategy.dlqFn = fn.bind(instance);
     }
   }
 }

@@ -1,7 +1,7 @@
 import { Type } from "@nestjs/common";
 import {
-  IDelayProgression,
-  IRabbitDeadletterCallback,
+  IRetryProgression,
+  IDLQFn,
   IRabbitMQHandler,
 } from "./rabbitmq.interfaces";
 
@@ -81,19 +81,19 @@ export type ConsumerOptions = {
      * Accepts a function or a string referencing a method name on the same class.
      * When using a string, the method is resolved and bound automatically at discovery time.
      * @default: () => 5000*/
-    delay?: IDelayProgression | string;
+    retryFn?: IRetryProgression | string;
   };
 
-  deadLetterStrategy?: {
+  dlqStrategy?: {
     /** Callback that will be executed before sending the message to the DLQ
-     * This handler will follow the `IRabbitDeadletterCallback` interface and expects
+     * This handler will follow the `IDLQFn` interface and expects
      * the return of a boolean. If the return is `TRUE`, it will send the message
      * to the DLQ right after, otherwise, it will skip sending it
      * 
      * Accepts a function or a string referencing a method name on the same class.
      * When using a string, the method is resolved and bound automatically at discovery time.
      */
-    callback?: IRabbitDeadletterCallback | string;
+    dlqFn?: IDLQFn | string;
 
     /**
      * Suffix used when setting up the DLQ Queues
@@ -181,10 +181,10 @@ export type ResolvedConsumerOptions = ConsumerOptions & {
   retryStrategy: {
     enabled: boolean;
     maxAttempts: number;
-    delay: IDelayProgression;
+    retryFn: IRetryProgression;
   };
-  deadLetterStrategy: {
-    callback: IRabbitDeadletterCallback;
+  dlqStrategy: {
+    dlqFn: IDLQFn;
     suffix: string;
   };
 };

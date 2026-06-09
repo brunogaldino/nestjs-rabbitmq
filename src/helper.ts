@@ -1,3 +1,5 @@
+import { randomInt } from "crypto";
+
 export function tryParseJson(content: string) {
   try {
     return !!content && JSON.parse(content);
@@ -20,4 +22,9 @@ export function merge<T = Record<string, any>>(source: Record<string, any>, targ
   }
 
   return merged as T;
+}
+
+export function generateRandomChars(length = 4) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from({ length }, () => chars[randomInt(0, chars.length)]).join('');
 }

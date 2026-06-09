@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { AmqpConnectionManager, ChannelWrapper } from "amqp-connection-manager";
 import { ConfirmChannel, ConsumeMessage } from "amqplib";
-import { merge, tryParseJson } from "./helper";
+import { generateRandomChars, merge, tryParseJson } from "./helper";
 import { IRabbitMQHandler } from "./rabbitmq.interfaces";
 import {
   LogType,
@@ -9,6 +9,8 @@ import {
   ResolvedConsumerOptions,
 } from "./rabbitmq.types";
 import { RetryHandler } from "./rabbitmq-retry-handler";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 
 type InspectInput = {
   consumeMessage: ConsumeMessage;
@@ -80,14 +82,15 @@ export class RabbitMQConsumer {
 
     await this.bindRoutingKeys(channel, consumer);
     await this.attachRetryAndDLQ(channel, consumer);
-
     channel.consume(consumer.queue, async (message) =>
       await this.consume(
         message,
         channel,
         consumer,
         handler,
-      )
+      ), {
+      consumerTag: `${hostname()}:${generateRandomChars(8)}`
+    }
     )
   }
 

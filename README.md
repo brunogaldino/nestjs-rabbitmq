@@ -490,8 +490,24 @@ before the next retry. The return value controls the behavior:
 **Defaults** (when `retryStrategy` is not specified):
 
 - `enabled`: true
-- `maxAttempts`: 5
+- `maxAttempts`: 5 (or `extraOptions.defaultMaxRetry` when set)
 - `retryFn`: () => 5000
+
+You can set a global default for the maximum retry attempts with
+`extraOptions.defaultMaxRetry`. It applies to every consumer that does not
+declare its own `retryStrategy.maxAttempts`:
+
+```typescript
+RabbitMQModule.forRoot({
+  connectionString: 'amqp://...',
+  extraOptions: {
+    defaultMaxRetry: 10,
+  },
+});
+```
+
+Precedence (highest to lowest): `consumer.retryStrategy.maxAttempts` →
+`extraOptions.defaultMaxRetry` → `5`.
 
 You can also give a "string" value referring a method of the same class,
 following the interface:

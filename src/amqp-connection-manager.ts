@@ -25,6 +25,7 @@ export class AMQPConnectionManager
       logType: "none",
       heartbeatIntervalInSeconds: 0,
       reconnectTimeInSeconds: 5,
+      defaultMaxRetry: 5
     },
   };
   private opts: ModuleOptions;
@@ -147,6 +148,7 @@ export class AMQPConnectionManager
       holder.consumerConn,
       this.opts.extraOptions.logType,
       holder.publisherWrapper,
+      this.opts.extraOptions.defaultMaxRetry,
     );
   }
 }

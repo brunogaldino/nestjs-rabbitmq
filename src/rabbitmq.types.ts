@@ -165,6 +165,12 @@ export type ModuleOptions = {
      * Time between reconnection attempts when a channel/broker connection fails
      * @default 5 seconds */
     reconnectTimeInSeconds?: number;
+
+    /**
+      * Maximum amount of retries that will be used if none is given to the consumer.retryStrategy.maxAttempts 
+      * @default 5
+     */
+    defaultMaxRetry?: number
   };
 
   /** Used for multi-vhost connections. If your application needs to publish and consume from

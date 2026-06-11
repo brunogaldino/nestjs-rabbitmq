@@ -1,8 +1,8 @@
 import { Logger } from "@nestjs/common";
 import { AmqpConnectionManager, ChannelWrapper } from "amqp-connection-manager";
 import { ConfirmChannel, ConsumeMessage } from "amqplib";
-import { generateRandomChars, merge, tryParseJson } from "./helper";
-import { IRabbitMQHandler } from "./rabbitmq.interfaces";
+import { generateRandomChars, tryParseJson } from "./helper";
+import { IDLQFn, IRabbitMQHandler, IRetryProgression } from "./rabbitmq.interfaces";
 import {
   LogType,
   ConsumerOptions,
@@ -10,7 +10,6 @@ import {
 } from "./rabbitmq.types";
 import { RetryHandler } from "./rabbitmq-retry-handler";
 import { hostname } from "node:os";
-import { randomUUID } from "node:crypto";
 
 type InspectInput = {
   consumeMessage: ConsumeMessage;
@@ -22,34 +21,45 @@ type InspectInput = {
 };
 
 
+export function resolveConsumerOptions(
+  consumer: ConsumerOptions,
+  defaults: { defaultMaxRetry: number },
+): ResolvedConsumerOptions {
+  return {
+    ...consumer,
+    durable: consumer.durable ?? true,
+    prefetch: consumer.prefetch ?? 10,
+    autoDelete: consumer.autoDelete ?? false,
+    retryStrategy: {
+      enabled: consumer.retryStrategy?.enabled ?? true,
+      maxAttempts: consumer.retryStrategy?.maxAttempts ?? defaults.defaultMaxRetry,
+      // retryFn/dlqFn given as strings are resolved to bound methods at discovery time
+      retryFn: (consumer.retryStrategy?.retryFn as IRetryProgression) ?? (() => 5000),
+    },
+    dlqStrategy: {
+      dlqFn: (consumer.dlqStrategy?.dlqFn as IDLQFn) ?? (async () => true),
+      suffix: consumer.dlqStrategy?.suffix ?? ".dlq",
+    },
+  };
+}
+
 export class RabbitMQConsumer {
   private logger = new Logger(RabbitMQConsumer.name);
 
   private readonly connection: AmqpConnectionManager;
   private readonly logType: LogType;
-  private defaultConsumerOptions: Partial<ConsumerOptions> = {
-    durable: true,
-    prefetch: 10,
-    autoDelete: false,
-    retryStrategy: {
-      enabled: true,
-      maxAttempts: 5,
-      retryFn: () => 5000,
-    },
-    dlqStrategy: {
-      dlqFn: async () => true,
-      suffix: ".dlq",
-    },
-  };
+  private readonly defaultMaxRetry: number;
   private readonly retryHandler: RetryHandler;
 
   constructor(
     connection: AmqpConnectionManager,
     logType: LogType,
     publishChannelWrapper: ChannelWrapper,
+    defaultMaxRetry = 5,
   ) {
     this.connection = connection;
     this.logType = logType;
+    this.defaultMaxRetry = defaultMaxRetry;
     this.retryHandler = new RetryHandler(publishChannelWrapper)
   }
 
@@ -57,7 +67,9 @@ export class RabbitMQConsumer {
     consumer: ConsumerOptions,
     handler: IRabbitMQHandler,
   ): Promise<ChannelWrapper> {
-    const resolved = merge(this.defaultConsumerOptions, consumer) as ResolvedConsumerOptions;
+    const resolved = resolveConsumerOptions(consumer, {
+      defaultMaxRetry: this.defaultMaxRetry,
+    });
     const consumerChannel = this.connection.createChannel({
       confirm: true,
       name: resolved.queue,

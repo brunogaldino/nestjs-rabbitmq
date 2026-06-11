@@ -308,6 +308,8 @@ type MessageParams = {
   channel: ConfirmChannel;
   queue: string;
   originalRoutingKey?: string;
+  correlationId?: string | null; // AMQP correlationId (or x-correlation-id header)
+  retryCount?: number; // retry attempts already performed for this message
 };
 ```
 
@@ -564,6 +566,7 @@ Every published message includes the following custom headers automatically:
 
 ```json
 {
+  "x-correlation-id": "uuid (mirrors the AMQP correlationId property)",
   "x-original-exchange": "exchange_name",
   "x-original-routing-key": "routing.key",
   "x-published-at": "2026-01-01T00:00:00.000Z"
@@ -573,6 +576,12 @@ Every published message includes the following custom headers automatically:
 These headers preserve the original exchange and routing key references, which
 would otherwise be lost when a message is routed through retry queues or the
 DLQ.
+
+A `correlationId` is generated automatically (or taken from
+`options.correlationId` if you pass one) and survives retry hops: when a
+message fails and is republished to the retry queue, all original AMQP
+properties (`correlationId`, `contentType`, `messageId`, ...) are preserved and
+an `x-last-retry-at` timestamp is stamped alongside `x-retries-count`.
 
 The `originalRoutingKey` field in `MessageParams` is derived from these headers
 when available, falling back to the message's current routing key.
@@ -592,6 +601,12 @@ or the `RABBITMQ_LOG_TYPE` environment variable to one of:
 The environment variable takes precedence over the config value.
 
 Consumer errors are always logged regardless of this setting.
+
+Each log entry is a structured object containing the binding, duration,
+`correlationId`, retry metadata (`retryCount`, `publishedAt`) and — when the
+message carries W3C trace context headers (`traceparent`/`tracestate`, e.g.
+injected by OpenTelemetry auto-instrumentation) — a `traceContext` field, so
+log entries can be correlated with distributed traces.
 
 ### Health check
 

@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { AmqpConnectionManager, ChannelWrapper } from "amqp-connection-manager";
 import { ConfirmChannel, ConsumeMessage } from "amqplib";
-import { generateRandomChars, tryParseJson } from "./helper";
+import { generateRandomChars, tryParseJson, extractTraceContext } from "./helper";
 import { IDLQFn, IRabbitMQHandler, IRetryProgression } from "./rabbitmq.interfaces";
 import {
   LogType,
@@ -155,7 +155,12 @@ export class RabbitMQConsumer {
       await callback(tryParseJson(message.content.toString("utf8")), {
         message,
         queue: consumer.queue,
-        originalRoutingKey: message.properties.headers["x-original-routing-key"] ?? message.fields.routingKey ?? null
+        originalRoutingKey: message.properties.headers["x-original-routing-key"] ?? message.fields.routingKey ?? null,
+        correlationId:
+          message.properties.correlationId ??
+          message.properties.headers?.["x-correlation-id"] ??
+          null,
+        retryCount: message.properties.headers?.["x-retries-count"] ?? 0,
       });
     } catch (e) {
       hasErrors = e;
@@ -228,12 +233,17 @@ export class RabbitMQConsumer {
     const { content, fields, properties } = consumeMessage;
     const message = `[AMQP] [CONSUMER] [${exchange}] [${routingKey}] [${queue}]`;
     const logLevel = error ? "error" : "log";
+    const headerContext = extractTraceContext(properties?.headers);
 
     const logData = {
       logLevel,
       type: "consumer",
       duration: args.elapsedTime.toString(),
-      correlationId: args.consumeMessage.properties.correlationId,
+      correlationId:
+        consumeMessage.properties.correlationId ?? headerContext.correlationId,
+      ...(headerContext.traceContext && { traceContext: headerContext.traceContext }),
+      ...(headerContext.retryCount != null && { retryCount: headerContext.retryCount }),
+      ...(headerContext.publishedAt && { publishedAt: headerContext.publishedAt }),
       binding,
       title: message,
       isDead: args.isDead,

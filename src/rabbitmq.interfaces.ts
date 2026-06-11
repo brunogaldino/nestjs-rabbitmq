@@ -7,6 +7,10 @@ export type MessageParams = {
   message: ConsumeMessage;
   queue: string;
   originalRoutingKey?: string;
+  /** Correlation id from AMQP properties (or x-correlation-id header) */
+  correlationId?: string | null;
+  /** Number of retry attempts already performed for this message */
+  retryCount?: number;
 };
 
 export interface IRabbitMQHandler<T = any> {

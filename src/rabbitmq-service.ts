@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
 import stringify from "faster-stable-stringify";
 import { PublishOptions } from "amqp-connection-manager/dist/types/ChannelWrapper";
-import { merge } from "./helper";
+import { merge, extractTraceContext } from "./helper";
 
 @Injectable()
 export class RabbitMQService {
@@ -53,9 +53,11 @@ export class RabbitMQService {
   ): Promise<boolean> {
     let hasErrors = null;
     const start = process.hrtime.bigint();
+    const correlationId = options?.correlationId ?? randomUUID();
     const defaultHeaders = {
-      correlationId: randomUUID(),
+      correlationId,
       headers: {
+        "x-correlation-id": correlationId,
         "x-original-exchange": exchangeName,
         "x-original-routing-key": routingKey,
         "x-published-at": new Date().toISOString(),
@@ -64,17 +66,20 @@ export class RabbitMQService {
       deliveryMode: 2,
     };
 
+    let effectiveOptions: PublishOptions = defaultHeaders;
+
     try {
       await this.AMQPConn.ensureConnected();
       const connectionName = options?.connection ?? "default";
       const holder = this.AMQPConn.getConnectionHolder(connectionName);
       const { connection: _conn, ...publishOptions } = options ?? {};
+      effectiveOptions = merge(defaultHeaders, publishOptions);
 
       await holder.publisherWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
-        merge(defaultHeaders, publishOptions),
+        effectiveOptions,
       );
     } catch (e) {
       hasErrors = e;
@@ -84,7 +89,7 @@ export class RabbitMQService {
         routingKey,
         message,
         process.hrtime.bigint() - start,
-        options,
+        effectiveOptions,
         hasErrors,
       );
     }
@@ -103,11 +108,14 @@ export class RabbitMQService {
     if (!["publisher", "all"].includes(this.AMQPConn.getLogType()) && !error) return;
 
     const logLevel = error ? "error" : "log";
+    const headerContext = extractTraceContext(properties?.headers);
     const logData = {
       logLevel,
       type: "publisher",
       duration: elapsedTime.toString(),
-      correlationId: properties?.correlationId,
+      correlationId: properties?.correlationId ?? headerContext.correlationId,
+      ...(headerContext.traceContext && { traceContext: headerContext.traceContext }),
+      ...(headerContext.publishedAt && { publishedAt: headerContext.publishedAt }),
       title: `[AMQP] [PUBLISH] [${exchange}] [${routingKey}]`,
       binding: { exchange, routingKey },
       publishedMessage: {

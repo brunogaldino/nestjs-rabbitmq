@@ -42,16 +42,26 @@ export class RetryHandler {
     }
 
     const retryQueue = `${consumer.queue}.retry`;
+    // Preserve original AMQP properties (correlationId, contentType, messageId, ...)
+    // so the trace chain survives retry hops.
+    const {
+      headers: _headers,
+      expiration: _expiration,
+      ...originalProperties
+    } = message.properties ?? {};
+
     try {
       return await this.publishChannel.publish(
         "",
         retryQueue,
         stringify(tryParseJson(message.content.toString("utf8"))),
         {
+          ...originalProperties,
           headers: {
             ...message.properties.headers,
             "x-retries-count": retryCount + 1,
             "x-original-routing-key": originalRoutingKey,
+            "x-last-retry-at": new Date().toISOString(),
           },
           expiration: retryDelay,
           deliveryMode: 2,

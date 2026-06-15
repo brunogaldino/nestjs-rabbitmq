@@ -170,7 +170,7 @@ export class RabbitMQConsumer {
         this.inspectConsumer({
           binding: {
             queue: consumer.queue,
-            routingKey: message.fields.routingKey,
+            routingKey: message.properties.headers["x-original-routing-key"] ?? message.fields.routingKey,
             exchange: consumer.exchangeName,
           },
           consumeMessage: message,

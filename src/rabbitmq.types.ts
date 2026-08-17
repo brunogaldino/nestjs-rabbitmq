@@ -167,10 +167,18 @@ export type ModuleOptions = {
     reconnectTimeInSeconds?: number;
 
     /**
-      * Maximum amount of retries that will be used if none is given to the consumer.retryStrategy.maxAttempts 
+      * Maximum amount of retries that will be used if none is given to the consumer.retryStrategy.maxAttempts
       * @default 5
      */
     defaultMaxRetry?: number
+
+    /**
+     * Delay progression that will be used if none is given to the
+     * consumer.retryStrategy.retryFn. Same contract as the per-consumer option:
+     * receives (content, attempt, exception) and returns the delay in ms.
+     * @default () => 5000
+     */
+    defaultRetryFn?: IRetryProgression
   };
 
   /** Used for multi-vhost connections. If your application needs to publish and consume from

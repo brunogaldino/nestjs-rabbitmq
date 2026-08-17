@@ -23,7 +23,7 @@ type InspectInput = {
 
 export function resolveConsumerOptions(
   consumer: ConsumerOptions,
-  defaults: { defaultMaxRetry: number },
+  defaults: { defaultMaxRetry: number; defaultRetryFn?: IRetryProgression },
 ): ResolvedConsumerOptions {
   return {
     ...consumer,
@@ -34,7 +34,10 @@ export function resolveConsumerOptions(
       enabled: consumer.retryStrategy?.enabled ?? true,
       maxAttempts: consumer.retryStrategy?.maxAttempts ?? defaults.defaultMaxRetry,
       // retryFn/dlqFn given as strings are resolved to bound methods at discovery time
-      retryFn: (consumer.retryStrategy?.retryFn as IRetryProgression) ?? (() => 5000),
+      retryFn:
+        (consumer.retryStrategy?.retryFn as IRetryProgression) ??
+        defaults.defaultRetryFn ??
+        (() => 5000),
     },
     dlqStrategy: {
       dlqFn: (consumer.dlqStrategy?.dlqFn as IDLQFn) ?? (async () => true),
@@ -49,6 +52,7 @@ export class RabbitMQConsumer {
   private readonly connection: AmqpConnectionManager;
   private readonly logType: LogType;
   private readonly defaultMaxRetry: number;
+  private readonly defaultRetryFn: IRetryProgression;
   private readonly retryHandler: RetryHandler;
 
   constructor(
@@ -56,10 +60,12 @@ export class RabbitMQConsumer {
     logType: LogType,
     publishChannelWrapper: ChannelWrapper,
     defaultMaxRetry = 5,
+    defaultRetryFn: IRetryProgression = () => 5000,
   ) {
     this.connection = connection;
     this.logType = logType;
     this.defaultMaxRetry = defaultMaxRetry;
+    this.defaultRetryFn = defaultRetryFn;
     this.retryHandler = new RetryHandler(publishChannelWrapper)
   }
 
@@ -69,6 +75,7 @@ export class RabbitMQConsumer {
   ): Promise<ChannelWrapper> {
     const resolved = resolveConsumerOptions(consumer, {
       defaultMaxRetry: this.defaultMaxRetry,
+      defaultRetryFn: this.defaultRetryFn,
     });
     const consumerChannel = this.connection.createChannel({
       confirm: true,

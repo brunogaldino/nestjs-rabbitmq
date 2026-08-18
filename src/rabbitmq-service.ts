@@ -1,35 +1,38 @@
-import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AMQPConnectionManager } from "./amqp-connection-manager";
-import { LogType } from "./rabbitmq.types";
-import { RabbitMQConsumer } from "./rabbitmq-consumers";
-import { ChannelWrapper } from "amqp-connection-manager";
 import stringify from "faster-stable-stringify";
 import { PublishOptions } from "amqp-connection-manager/dist/types/ChannelWrapper";
-import { merge } from "./helper";
+import { merge, extractTraceContext } from "./helper";
 
 @Injectable()
-export class RabbitMQService implements OnApplicationBootstrap {
-  private logType: LogType;
-  private logger: Console | Logger =
-    AMQPConnectionManager.rabbitModuleOptions?.extraOptions?.loggerInstance ??
-    new Logger(RabbitMQService.name);
+export class RabbitMQService {
+  private logger: Logger = new Logger(RabbitMQService.name);
 
-  onApplicationBootstrap() {
-    this.logType =
-      (process.env.RABBITMQ_LOG_TYPE as LogType) ??
-      AMQPConnectionManager.rabbitModuleOptions.extraOptions.logType;
-  }
+  constructor(private readonly AMQPConn: AMQPConnectionManager) { }
 
   /**
-   * Check status of the main conenection to the broker.
+   * Check status of broker connections.
+   * When called without arguments, checks all connections.
+   * When called with a connection name, checks only that connection.
    * @returns {number} 1 - Online | 0 - Offline
    */
-  public checkHealth(): number {
-    return AMQPConnectionManager.consumerConn.isConnected() &&
-      AMQPConnectionManager.publisherConn.isConnected()
-      ? 1
-      : 0;
+  public async checkHealth(connectionName?: string): Promise<number> {
+    await this.AMQPConn.ensureConnected();
+
+    if (connectionName) {
+      const holder = this.AMQPConn.getConnectionHolder(connectionName);
+      const publisherOk = holder.publisherConn?.isConnected();
+      const consumerOk = holder.consumerConn ? holder.consumerConn.isConnected() : true;
+      return publisherOk && consumerOk ? 1 : 0;
+    }
+
+    for (const holder of this.AMQPConn.getAllConnections()) {
+      const publisherOk = holder.publisherConn?.isConnected();
+      const consumerOk = holder.consumerConn ? holder.consumerConn.isConnected() : true;
+      if (!publisherOk || !consumerOk) return 0;
+    }
+    return 1;
   }
 
   /**
@@ -46,29 +49,37 @@ export class RabbitMQService implements OnApplicationBootstrap {
     exchangeName: string,
     routingKey: string,
     message: T,
-    options?: PublishOptions,
+    options?: PublishOptions & { connection?: string },
   ): Promise<boolean> {
     let hasErrors = null;
     const start = process.hrtime.bigint();
+    const correlationId = options?.correlationId ?? randomUUID();
     const defaultHeaders = {
-      correlationId: randomUUID(),
+      correlationId,
       headers: {
-        "x-application-headers": {
-          "original-exchange": exchangeName,
-          "original-routing-key": routingKey,
-          "published-at": new Date().toISOString(),
-        },
+        "x-correlation-id": correlationId,
+        "x-original-exchange": exchangeName,
+        "x-original-routing-key": routingKey,
+        "x-published-at": new Date().toISOString(),
       },
       persistent: true,
       deliveryMode: 2,
     };
 
+    let effectiveOptions: PublishOptions = defaultHeaders;
+
     try {
-      await AMQPConnectionManager.publishChannelWrapper.publish(
+      await this.AMQPConn.ensureConnected();
+      const connectionName = options?.connection ?? "default";
+      const holder = this.AMQPConn.getConnectionHolder(connectionName);
+      const { connection: _conn, ...publishOptions } = options ?? {};
+      effectiveOptions = merge(defaultHeaders, publishOptions);
+
+      await holder.publisherWrapper.publish(
         exchangeName,
         routingKey,
         stringify(message),
-        merge(defaultHeaders, options),
+        effectiveOptions,
       );
     } catch (e) {
       hasErrors = e;
@@ -78,40 +89,12 @@ export class RabbitMQService implements OnApplicationBootstrap {
         routingKey,
         message,
         process.hrtime.bigint() - start,
-        options,
+        effectiveOptions,
         hasErrors,
       );
     }
 
     return !hasErrors;
-  }
-
-  async createConsumers(): Promise<ChannelWrapper[]> {
-    if (AMQPConnectionManager.isConsumersLoaded)
-      throw new Error(
-        "Consumers already initialized. If you wish to start it manually, see consumeManualLoad",
-      );
-
-    const consumerOptionList =
-      AMQPConnectionManager.rabbitModuleOptions.consumerChannels ?? [];
-
-    const consumerList = [];
-
-    for (const consumerEntry of consumerOptionList) {
-      const consumerOptions = consumerEntry.options;
-
-      const consumer = await new RabbitMQConsumer(
-        AMQPConnectionManager.consumerConn,
-        AMQPConnectionManager.rabbitModuleOptions,
-        AMQPConnectionManager.publishChannelWrapper,
-      ).createConsumer(consumerOptions, consumerEntry.messageHandler);
-
-      consumerList.push(consumer);
-    }
-
-    this.logger.debug("Initiating RabbitMQ consumers manually");
-    AMQPConnectionManager.isConsumersLoaded = true;
-    return consumerList;
   }
 
   private inspectPublisher(
@@ -122,14 +105,17 @@ export class RabbitMQService implements OnApplicationBootstrap {
     properties?: PublishOptions,
     error?: any,
   ): void {
-    if (!["publisher", "all"].includes(this.logType) && !error) return;
+    if (!["publisher", "all"].includes(this.AMQPConn.getLogType()) && !error) return;
 
     const logLevel = error ? "error" : "log";
+    const headerContext = extractTraceContext(properties?.headers);
     const logData = {
       logLevel,
       type: "publisher",
       duration: elapsedTime.toString(),
-      correlationId: properties?.correlationId,
+      correlationId: properties?.correlationId ?? headerContext.correlationId,
+      ...(headerContext.traceContext && { traceContext: headerContext.traceContext }),
+      ...(headerContext.publishedAt && { publishedAt: headerContext.publishedAt }),
       title: `[AMQP] [PUBLISH] [${exchange}] [${routingKey}]`,
       binding: { exchange, routingKey },
       publishedMessage: {

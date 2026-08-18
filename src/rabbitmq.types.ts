@@ -1,22 +1,36 @@
-import { Logger } from "@nestjs/common";
+import { Type } from "@nestjs/common";
 import {
-  IDelayProgression,
-  IRabbitDeadletterCallback,
-  IRabbitHandler,
+  IRetryProgression,
+  IDLQFn,
+  IRabbitMQHandler,
 } from "./rabbitmq.interfaces";
 
-export type RabbitMQExchangeTypes = "direct" | "topic" | "fanout" | "headers";
+export type ExchangeType = "direct" | "topic" | "fanout" | "headers";
 export type LogType = "all" | "consumer" | "publisher" | "none";
 export type ConnectionType = "consumer" | "publisher";
 
-export type RabbitMQConsumerOptions = {
+export type ConnectionConfig = {
+  name: string;
+  connectionString: string | string[];
+  assertExchanges?: Array<Exchange>;
+  consumerChannels?: Array<ConsumerChannel>;
+};
+
+export type ConsumerOptions = {
+  /** If consumer should be enabled or not
+   * @default true
+   */
+  enabled?: boolean;
+
+  /** Used for multi-vhost connections.
+   * When only one connection is used, there is no need to give this attribute 
+   * otherwise, pass the name of the connection this consumer should attach
+   * @default "default"
+  */
+  connection?: string;
+
   /** Name of the Queue */
   queue: string;
-
-  /** The SDK will send an ACK at the end of the consumer function
-   * If *disabled* your consumer will need to call channel.ack() manually !
-   * @defaultValue true*/
-  autoAck?: boolean;
 
   /** Amount of messages that will be delivered to the consumer at once
    * @default 10 */
@@ -59,18 +73,27 @@ export type RabbitMQConsumerOptions = {
     maxAttempts?: number;
 
     /** The delay amount in MS before the retry sends the message to the original queue
-     * @default: 5000*/
-    delay?: IDelayProgression;
+     * The return can have three effects:
+     *  - >1: It will send to the delay queue for that amount of time before returning it to the end of the original queue 
+     *  - =0: Should retry right now, and will republish at the end of the original queue 
+     *  - -1: Should skip any retrying attempt and send to the DLQStrategy 
+     * 
+     * Accepts a function or a string referencing a method name on the same class.
+     * When using a string, the method is resolved and bound automatically at discovery time.
+     * @default: () => 5000*/
+    retryFn?: IRetryProgression | string;
   };
 
-  deadLetterStrategy?: {
+  dlqStrategy?: {
     /** Callback that will be executed before sending the message to the DLQ
-     * This handler will follow the `IRabbitDeadletterCallback` interface and expects
-     * the return of a boolean_. If the return is `TRUE`, it will send the message
+     * This handler will follow the `IDLQFn` interface and expects
+     * the return of a boolean. If the return is `TRUE`, it will send the message
      * to the DLQ right after, otherwise, it will skip sending it
-     * @example messageHandler: this.yourService.deadLetterFunction.bind(this.yourService)
+     * 
+     * Accepts a function or a string referencing a method name on the same class.
+     * When using a string, the method is resolved and bound automatically at discovery time.
      */
-    callback?: IRabbitDeadletterCallback;
+    dlqFn?: IDLQFn | string;
 
     /**
      * Suffix used when setting up the DLQ Queues
@@ -78,24 +101,15 @@ export type RabbitMQConsumerOptions = {
      */
     suffix?: string;
   };
-
-  // /** Override default suffix that are defined in this library */
-  // suffixOptions?: {
-  //   /**
-  //    * Suffix used when setting up the DLQ Queues
-  //    * @default .dlq
-  //    */
-  //   dlqSuffix?: string;
-  // };
 };
 
-export type RabbitMQAssertExchange = {
+export type Exchange = {
   /** Name of the exchange to be asserted*/
   name: string;
 
   /** Assert the type of the exchange.
    * @see {@link https://www.rabbitmq.com/tutorials/amqp-concepts} for more information about exchange types */
-  type: RabbitMQExchangeTypes;
+  type: ExchangeType;
 
   options?: {
     /** If messages that passes through this exchange should be stored on a persistent disk
@@ -107,69 +121,37 @@ export type RabbitMQAssertExchange = {
      * @remarks **WARNING**: RabbitMQ will delete the queue no matter the amount of messages enqueued.
      * @default false */
     autoDelete?: boolean;
-
-    /** Declare the exchange as a delayed one, in this scenario the exchange will be declated as a `x-delayed-message` with an argument `x-delayed-type: ${type}`
-     * @default false */
-    isDelayed?: boolean;
   };
 };
 
-export type RabbitMQConsumerChannel = {
-  options: RabbitMQConsumerOptions;
-
-  /** Callback bind that will be declared as consumer
-   * This handler will follow the `IRabbitHandler` interface
-   * @example messageHandler: this.yourService.messageHandler.bind(this.yourService)
-   */
-  messageHandler: IRabbitHandler;
+export type ConsumerChannel<T = any> = ConsumerOptions & {
+  handler: {
+    provider: Type<T>;
+    methodName: MethodNames<T>;
+  }
 };
 
-export type RabbitMQModuleOptions = {
+export type RabbitMQConsumerResolved = ConsumerOptions & {
+  handler: IRabbitMQHandler,
+}
+
+export type ModuleOptions = {
   /** Connection URI for the RabbitMQ server
    * @example amqp://{user}:{password}@{url}/{vhost}
    * */
-  connectionString: string | string[];
-
-  /** The name of the centralized retry exchange that will be used
-   * a `.delay` will be added to the given name
-   * Will be asserted if it does not exists*/
-  delayExchangeName: string;
-
-  // /** When **TRUE**, the connection will be made synchronously during the `OnModuleInit` lifecycle
-  //  * and will only return after the connection is sucessfully made
-  //  * When **FALSE**, the connection is made asynchronously and will release the lifecycle event as fast as possible.
-  //  @ deprecated
-  //  * Default: true */
-  // waitConnection?: boolean;
+  connectionString?: string | string[];
 
   /** All exchanges declared here will be validated before attaching the consumers
    * If any of the exchanegs declared can not be asserted an error will be thrown */
-  assertExchanges?: Array<RabbitMQAssertExchange>;
+  assertExchanges?: Array<Exchange>;
 
   /** Array of consumers that will be attached to the application*/
-  consumerChannels?: Array<RabbitMQConsumerChannel>;
+  consumerChannels?: Array<ConsumerChannel>;
 
   extraOptions?: {
-    /** When **TRUE** the SDK will not initiate the consumers automatically during the _OnModuleInit_
-     * To initiate the consumer, you can call it at the end of the `bootstrap()` on your `main.ts` file
-     * @default false
-     * @example
-     * ```javascript
-     * const rabbitService: RabbitMQService = app.get(RabbitMQService);
-     * await rabbitService.beginConsumers();
-     * ``` */
-    consumerManualLoad?: boolean;
-
     /** Enables the message inspection of different parts of the RabbitMQ
      * this option can be overriden by using the env RABBITMQ_LOG_TYPE */
     logType?: LogType;
-
-    /**
-     * Will use the given logger instead of the default Logger from NestJS. Ensure that the logger follows the
-     * NestJS Logger or Console interfaces to be used
-     * @default new Logger()
-     */
-    loggerInstance?: Console | Logger;
 
     /**
      *  Interval to send heartbeats to the broker.
@@ -183,5 +165,51 @@ export type RabbitMQModuleOptions = {
      * Time between reconnection attempts when a channel/broker connection fails
      * @default 5 seconds */
     reconnectTimeInSeconds?: number;
+
+    /**
+      * Maximum amount of retries that will be used if none is given to the consumer.retryStrategy.maxAttempts
+      * @default 5
+     */
+    defaultMaxRetry?: number
+
+    /**
+     * Delay progression that will be used if none is given to the
+     * consumer.retryStrategy.retryFn. Same contract as the per-consumer option:
+     * receives (content, attempt, exception) and returns the delay in ms.
+     * @default () => 5000
+     */
+    defaultRetryFn?: IRetryProgression
+  };
+
+  /** Used for multi-vhost connections. If your application needs to publish and consume from
+   * different rabbit brokers or different instances, you can drop the passage of options and instead 
+   * use the 
+   */
+  connections?: ConnectionConfig[];
+};
+
+export type ResolvedConsumerOptions = ConsumerOptions & {
+  durable: boolean;
+  prefetch: number;
+  autoDelete: boolean;
+  retryStrategy: {
+    enabled: boolean;
+    maxAttempts: number;
+    retryFn: IRetryProgression;
+  };
+  dlqStrategy: {
+    dlqFn: IDLQFn;
+    suffix: string;
   };
 };
+
+export type MethodNames<T> = {
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  [K in keyof T]: T[K] extends Function ? K : never;
+}[keyof T] & string;
+
+export function defineRabbitConsumer<T>(
+  config: ConsumerChannel<T>
+): ConsumerChannel<T> {
+  return config;
+}

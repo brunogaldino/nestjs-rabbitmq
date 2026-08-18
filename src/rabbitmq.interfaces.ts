@@ -1,37 +1,68 @@
 import { ChannelWrapper } from "amqp-connection-manager";
-import { ConfirmChannel, ConsumeMessage } from "amqplib";
-import { RabbitMQModuleOptions } from "./rabbitmq.types";
+import { ConsumeMessage } from "amqplib";
+import { ModuleOptions } from "./rabbitmq.types";
+import { ModuleMetadata, Type } from "@nestjs/common";
 
-export type RabbitConsumerParameters = {
+export type MessageParams = {
   message: ConsumeMessage;
-  channel: ConfirmChannel;
   queue: string;
+  originalRoutingKey?: string;
+  /** Correlation id from AMQP properties (or x-correlation-id header) */
+  correlationId?: string | null;
+  /** Number of retry attempts already performed for this message */
+  retryCount?: number;
 };
 
-export interface IRabbitHandler<T = any> {
-  (content: T, parameters?: RabbitConsumerParameters): Promise<void>;
+export interface IRabbitMQHandler<T = any> {
+  (content: T, parameters?: MessageParams): Promise<void>;
 }
 
-export interface IRabbitDeadletterCallback<T = any> {
+export interface IDLQFn<T = any> {
   (content: T): Promise<boolean> | boolean;
 }
 
-export interface IDelayProgression {
-  (attempt: number): number;
+export interface IRetryProgression {
+  (content: any, attempt: number, exception: Error): Promise<number> | number;
 }
 
-export interface RabbitOptionsFactory {
-  createRabbitOptions(): RabbitMQModuleOptions;
+export interface RabbitMQOptionsFactory {
+  createRabbitOptions(): ModuleOptions;
 }
 
-export interface RabbitChannel {
+export interface RabbitMQChannel {
   exchangeType: string;
   wrapper: ChannelWrapper;
 }
 
-export interface IRabbitConsumer<T = any> {
+export interface ConsumerHandler<T = any> {
   messageHandler(
     content: T,
-    parameters?: RabbitConsumerParameters,
+    parameters?: MessageParams,
   ): Promise<void>;
+}
+
+export interface ModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
+  /**
+   * Factory function that returns the configuration object
+   */
+  useFactory?: (...args: any[]) => Promise<ModuleOptions> | ModuleOptions;
+
+  /**
+   * Optional list of providers to be injected into the factory function.
+   */
+  inject?: any[];
+
+  imports?: any[];
+
+  providers?: any[];
+
+  /**
+   * Optional class that implements the RabbitMQOptionsFactory interface
+   */
+  useClass?: Type<RabbitMQOptionsFactory>;
+
+  /**
+   * Optional existing provider to be reused
+   */
+  useExisting?: Type<any>;
 }

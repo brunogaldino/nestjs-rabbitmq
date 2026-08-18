@@ -3,8 +3,6 @@ import { RabbitMQModuleOptions, RabbitOptionsFactory } from "../../../src";
 import { RmqTestService } from "../rmq-test.service";
 import { TestConsumers } from "./rmq-test.config";
 
-export const delayExchangeName = "test_delay";
-
 @Injectable()
 export class RmqTestManualConsumerConfig implements RabbitOptionsFactory {
   constructor(private readonly rmqTest: RmqTestService) {}
@@ -12,7 +10,6 @@ export class RmqTestManualConsumerConfig implements RabbitOptionsFactory {
   createRabbitOptions(): RabbitMQModuleOptions {
     return {
       connectionString: "amqp://localhost:5672",
-      delayExchangeName: delayExchangeName,
       extraOptions: {
         consumerManualLoad: true,
         logType: "none",

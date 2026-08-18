@@ -32,12 +32,10 @@ export const TestConsumers: RabbitMQConsumerOptions[] = [
     retryStrategy: {
       enabled: true,
       maxAttempts: 1,
-      delay: (attempt) => attempt,
+      retryFn: (attempt) => attempt,
     },
   },
 ];
-
-export const delayExchangeName = "test_delay";
 
 @Injectable()
 export class RmqTestConfig implements RabbitOptionsFactory {
@@ -46,7 +44,6 @@ export class RmqTestConfig implements RabbitOptionsFactory {
   createRabbitOptions(): RabbitMQModuleOptions {
     return {
       connectionString: "amqp://localhost:5672",
-      delayExchangeName: delayExchangeName,
       assertExchanges: TestExchanges,
       extraOptions: {
         logType: "all",
